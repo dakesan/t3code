@@ -7,8 +7,15 @@ import * as NodeChildProcess from "node:child_process";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
+import {
+  activateLocal,
+  bootstrapExport,
+  exportPatch,
+  inspectLocal,
+  runFleet,
+} from "./local-idle-compaction-fleet.mjs";
 
-const repo = NodePath.resolve(NodePath.dirname(NodeURL.fileURLToPath(import.meta.url)), "..");
+let repo = NodePath.resolve(NodePath.dirname(NodeURL.fileURLToPath(import.meta.url)), "..");
 const base = "v0.0.46-nightly.20261012.3010";
 const state =
   process.env.T3_PATCH_STATE_DIR ??
@@ -33,6 +40,10 @@ async function writeJson(path, value) {
 }
 async function runningVersion(version) {
   const executable = NodePath.join(versions, version, "t3");
+  if (NodeOS.platform() === "darwin") {
+    const processes = await run("ps", ["-axo", "command="], { capture: true });
+    return processes.split("\n").some((line) => line.startsWith(`${executable} `));
+  }
   for (const pid of await NodeFSP.readdir("/proc")) {
     if (!/^\d+$/.test(pid)) continue;
     if ((await NodeFSP.readlink(`/proc/${pid}/exe`).catch(() => "")) === executable) return true;
@@ -74,7 +85,17 @@ async function publish(version, staging, patchCommit) {
 async function run(command, args, options = {}) {
   const child = NodeChildProcess.spawn(command, args, {
     cwd: options.cwd ?? repo,
-    env: { ...process.env, ...options.env },
+    env: {
+      ...process.env,
+      ...(NodeOS.platform() === "linux"
+        ? {
+            XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR ?? `/run/user/${process.getuid()}`,
+            DBUS_SESSION_BUS_ADDRESS:
+              process.env.DBUS_SESSION_BUS_ADDRESS ?? `unix:path=/run/user/${process.getuid()}/bus`,
+          }
+        : {}),
+      ...options.env,
+    },
     stdio: options.capture ? ["ignore", "pipe", "inherit"] : "inherit",
   });
   let output = "";
@@ -125,6 +146,8 @@ async function featureHash(commit) {
   return NodeCrypto.createHash("sha256").update(patch).digest("hex");
 }
 async function samePatch(record, config) {
+  if (config.patchFile && !record.featureHash && record.patchCommit !== config.patchCommit)
+    return false;
   return (
     record.patchCommit === config.patchCommit ||
     (record.featureHash ?? (await featureHash(record.patchCommit))) ===
@@ -168,11 +191,11 @@ async function prepare(version, release) {
   const archive = NodePath.join(work, "source.tar");
   await run("git", ["archive", `v${version}`, "-o", archive]);
   await run("tar", ["-xf", archive, "-C", source]);
-  const patch = await run(
-    "git",
-    ["diff", "--binary", base, config.patchCommit, "--", "apps", "packages"],
-    { capture: true },
-  );
+  const patch = config.patchFile
+    ? (await NodeFSP.readFile(config.patchFile, "utf8")).trim()
+    : await run("git", ["diff", "--binary", base, config.patchCommit, "--", "apps", "packages"], {
+        capture: true,
+      });
   if (!patch) throw new Error("Patch commit has no feature changes");
   const patchFile = NodePath.join(work, "idle-compaction.patch");
   await NodeFSP.writeFile(patchFile, patch + "\n");
@@ -229,6 +252,8 @@ async function prepare(version, release) {
     NodePath.join(staging, "t3"),
   );
   await NodeFSP.chmod(NodePath.join(staging, "t3"), 0o755);
+  if (NodeOS.platform() === "darwin")
+    await run("codesign", ["--force", "--sign", "-", NodePath.join(staging, "t3")]);
   await NodeFSP.cp(
     NodePath.join(source, "apps/server/dist/client"),
     NodePath.join(staging, "client"),
@@ -255,6 +280,7 @@ async function prepare(version, release) {
   await writeJson(NodePath.join(staging, markerName), {
     version,
     patchCommit: config.patchCommit,
+    featureHash: config.featureHash,
     builtAt: new Date().toISOString(),
     sha256: NodeCrypto.createHash("sha256")
       .update(await NodeFSP.readFile(NodePath.join(staging, "t3")))
@@ -264,8 +290,53 @@ async function prepare(version, release) {
 }
 
 async function main() {
-  const [action = "status", version] = process.argv.slice(2);
+  const [action = "status", ...args] = process.argv.slice(2);
+  const version = args.find((arg) => !arg.startsWith("--"));
   await NodeFSP.mkdir(state, { recursive: true });
+  if (action !== "install" && action !== "bootstrap" && (await exists(configFile)))
+    repo = (await json(configFile)).repo ?? repo;
+  const context = {
+    repo,
+    base,
+    state,
+    home,
+    versions,
+    markerName,
+    configFile,
+    run,
+    exists,
+    json,
+    writeJson,
+    prepare,
+    publish,
+    settings,
+    script: NodeURL.fileURLToPath(import.meta.url),
+  };
+  if (action === "bootstrap") {
+    await bootstrapExport(context, version);
+    return;
+  }
+  if (action === "inspect") {
+    console.log(JSON.stringify(await inspectLocal(context)));
+    return;
+  }
+  if (action === "export") {
+    console.log(await exportPatch(context));
+    return;
+  }
+  if (action === "activate") {
+    await withLock(() => activateLocal(context, version));
+    return;
+  }
+  if (action === "update" || action === "update-all") {
+    const target = version ?? (await latestRelease()).tag_name.slice(1);
+    if (!versionPattern.test(target)) throw new Error("Expected an exact nightly version");
+    if (action === "update") {
+      await run(process.execPath, [context.script, "apply", target]);
+      await run(process.execPath, [context.script, "activate", target]);
+    } else await withLock(() => runFleet(context, target), "fleet-lock");
+    return;
+  }
   if (action === "install") {
     const patchCommit = await run("git", ["rev-parse", "HEAD"], { capture: true });
     if (await run("git", ["status", "--porcelain"], { capture: true }))
@@ -317,36 +388,30 @@ async function main() {
     );
     return;
   }
-  if (action === "enable-auto" || action === "disable-auto") {
+  if (action === "disable-auto") {
     await settings();
     const env = {
       XDG_RUNTIME_DIR: `/run/user/${process.getuid()}`,
       DBUS_SESSION_BUS_ADDRESS: `unix:path=/run/user/${process.getuid()}/bus`,
     };
-    if (action === "disable-auto") {
-      await run("systemctl", ["--user", "disable", "--now", "t3-nightly-patch.timer"], { env });
-      return;
-    }
-    const unitDir = NodePath.join(NodeOS.homedir(), ".config/systemd/user");
-    await NodeFSP.mkdir(unitDir, { recursive: true });
-    const script = NodeURL.fileURLToPath(import.meta.url);
-    await NodeFSP.writeFile(
-      NodePath.join(unitDir, "t3-nightly-patch.service"),
-      `[Unit]\nDescription=Prepare the local idle-compaction patch for new T3 nightlies\n[Service]\nType=oneshot\nEnvironment="PATH=${process.env.PATH}"\nExecStart="${process.execPath}" "${script}" prepare-latest\nNice=10\nIOSchedulingClass=idle\nTimeoutStartSec=2h\n`,
-    );
-    await NodeFSP.writeFile(
-      NodePath.join(unitDir, "t3-nightly-patch.timer"),
-      "[Unit]\nDescription=Check T3 nightly patches every 15 minutes\n[Timer]\nOnBootSec=5min\nOnUnitActiveSec=15min\nPersistent=true\n[Install]\nWantedBy=timers.target\n",
-    );
-    await run("systemctl", ["--user", "daemon-reload"], { env });
-    await run("systemctl", ["--user", "enable", "--now", "t3-nightly-patch.timer"], { env });
+    await run("systemctl", ["--user", "disable", "--now", "t3-nightly-patch.timer"], { env });
     return;
   }
   if (!["apply", "prepare-latest"].includes(action))
     throw new Error(
-      "Usage: t3-nightly-patch install | status | apply [version] | prepare-latest | enable-auto | disable-auto",
+      "Usage: t3-nightly-patch update-all [version] | update [version] | status | apply [version] | prepare-latest | install | disable-auto",
     );
-  const lock = NodePath.join(state, "lock");
+  await withLock(async () => {
+    const release = action === "prepare-latest" ? await latestRelease() : undefined;
+    await prepare(
+      release ? release.tag_name.slice(1) : (version ?? (await installedVersion())),
+      release,
+    );
+  });
+}
+
+async function withLock(work, name = "lock") {
+  const lock = NodePath.join(state, name);
   try {
     await NodeFSP.mkdir(lock);
   } catch (error) {
@@ -361,8 +426,7 @@ async function main() {
         }
       }
       if (alive) {
-        console.log("Another patch build holds the lock");
-        return;
+        throw new Error("Another patch build holds the lock", { cause: error });
       }
       await NodeFSP.rename(lock, `${lock}.stale-${Date.now()}`);
       await NodeFSP.mkdir(lock);
@@ -375,11 +439,7 @@ async function main() {
     startedAt: new Date().toISOString(),
   });
   try {
-    const release = action === "prepare-latest" ? await latestRelease() : undefined;
-    await prepare(
-      release ? release.tag_name.slice(1) : (version ?? (await installedVersion())),
-      release,
-    );
+    await work();
   } finally {
     await NodeFSP.unlink(NodePath.join(lock, "owner.json"));
     await NodeFSP.rmdir(lock);

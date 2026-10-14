@@ -54,8 +54,8 @@ NodeTest.test("a live builder excludes concurrent patch attempts", (context) => 
     JSON.stringify({ pid: process.pid }),
   );
   const result = box.run("apply", version);
-  NodeAssert.equal(result.status, 0, result.stderr);
-  NodeAssert.match(result.stdout, /Another patch build/);
+  NodeAssert.equal(result.status, 1, result.stderr);
+  NodeAssert.match(result.stderr, /Another patch build/);
   NodeAssert.equal(NodeFS.existsSync(NodePath.join(box.state, "builds")), false);
 });
 
