@@ -71,7 +71,12 @@ The backend patch targets every non-archived, non-deleted T3 conversation using
 Claude Code or Codex, excluding provider-native subagents. It sends `/compact`
 after 54 minutes for Claude Code and 25 minutes for Codex, measured from the last
 user prompt. A five-second scheduler checks deadlines; active work defers the
-operation until idle. Existing old conversations are included. A persisted
+operation until idle. Only user prompts sent strictly after the current backend worker started are
+eligible. Updating or restarting never sweeps historical conversations, even if
+their deadlines passed. To arm an existing conversation again, send a new user
+prompt after restart. Settled conversations (explicit override or settlement
+timestamp) are excluded, as are conversations with a compact message or completed
+provider compaction after their latest user prompt. A persisted
 maintenance message prevents repeating the attempt until a new user prompt.
 The patched web and mobile source shows a countdown below ten minutes.
 These times are user-selected policy values, not a guarantee of cache retention

@@ -15,6 +15,8 @@ function projection(driver = "codex") {
       lineage: { relationshipToParent: null },
       archivedAt: null,
       deletedAt: null,
+      settledOverride: null,
+      settledAt: null,
     },
     providerThreads: [{ id: "provider", driver }],
     messages: [
@@ -93,6 +95,30 @@ describe("idle compaction policy", () => {
         thread: { ...projection().thread, archivedAt: at(1) },
       }),
     ).toBeNull();
+  });
+  it.each([
+    { settledOverride: "settled", settledAt: null },
+    { settledOverride: null, settledAt: at(1) },
+  ] as const)("leaves settled threads untouched: %o", (settlement) => {
+    const state = projection();
+    expect(
+      idleCompactionState({ ...state, thread: { ...state.thread, ...settlement } }),
+    ).toBeNull();
+  });
+  it("does not compact a provider session already compacted after its prompt", () => {
+    const state = projection();
+    Object.assign(state, {
+      turnItems: [
+        {
+          type: "compaction",
+          providerThreadId: "provider",
+          status: "completed",
+          completedAt: at(1),
+          updatedAt: at(1),
+        },
+      ],
+    });
+    expect(idleCompactionState(state)).toBeNull();
   });
   it("shows a countdown only below ten minutes and clamps overdue time", () => {
     expect(idleCompactionMinutesRemaining(25 * 60_000, 15 * 60_000)).toBeNull();

@@ -17,17 +17,18 @@ import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAda
 import * as Worker from "./IdleCompactionWorker.ts";
 
 it.effect(
-  "compacts all due idle threads without a client and remembers persisted attempts after restart",
+  "ignores pre-start prompts, compacts new prompts once, and ignores them again after restart",
   () =>
     Effect.scoped(
       Effect.gen(function* () {
         let sweep: Effect.Effect<void> = Effect.die("Scheduler was not registered");
         const commands: string[] = [];
         const compacted = new Set<string>();
+        let promptAt = -60_000;
         const shell = ["codex", "claudeAgent"].map((driver) => ({
           id: ThreadId.make(driver),
           providerInstanceId: ProviderInstanceId.make(driver),
-          latestUserAuthoredMessageAt: DateTime.makeUnsafe(0),
+          latestUserAuthoredMessageAt: DateTime.makeUnsafe(promptAt),
           activeRunId: null,
           pendingRuntimeRequest: null,
         }));
@@ -57,6 +58,8 @@ it.effect(
                   lineage: { relationshipToParent: null },
                   archivedAt: null,
                   deletedAt: null,
+                  settledOverride: null,
+                  settledAt: null,
                 },
                 providerThreads: [{ id, driver: id }],
                 messages: [
@@ -64,8 +67,8 @@ it.effect(
                     role: "user",
                     createdBy: "user",
                     text: "Work",
-                    createdAt: DateTime.makeUnsafe(0),
-                    updatedAt: DateTime.makeUnsafe(0),
+                    createdAt: DateTime.makeUnsafe(promptAt),
+                    updatedAt: DateTime.makeUnsafe(promptAt),
                   },
                   ...(compacted.has(id)
                     ? [
@@ -73,8 +76,8 @@ it.effect(
                           role: "user",
                           text: "/compact",
                           createdBy: "system",
-                          createdAt: DateTime.makeUnsafe(1),
-                          updatedAt: DateTime.makeUnsafe(1),
+                          createdAt: DateTime.makeUnsafe(promptAt + 1),
+                          updatedAt: DateTime.makeUnsafe(promptAt + 1),
                         },
                       ]
                     : []),
@@ -95,6 +98,13 @@ it.effect(
           }),
         );
         yield* Layer.build(Worker.layer.pipe(Layer.provide(dependencies)));
+        yield* TestClock.adjust("60 minutes");
+        yield* sweep;
+        assert.deepEqual(commands, []);
+        yield* TestClock.adjust(1);
+        promptAt = 60 * 60_000 + 1;
+        for (const thread of shell)
+          thread.latestUserAuthoredMessageAt = DateTime.makeUnsafe(promptAt);
         yield* TestClock.adjust("24 minutes");
         yield* sweep;
         assert.deepEqual(commands, []);
@@ -104,7 +114,8 @@ it.effect(
         yield* TestClock.adjust("29 minutes");
         yield* sweep;
         assert.deepEqual(commands, ["codex", "claudeAgent"]);
-        // A new worker's in-memory map is empty; the maintenance messages survive it.
+        // Even without compact records, a restart never sweeps existing prompts.
+        compacted.clear();
         yield* Layer.build(Worker.layer.pipe(Layer.provide(dependencies)));
         yield* sweep;
         assert.deepEqual(commands, ["codex", "claudeAgent"]);
