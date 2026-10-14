@@ -317,8 +317,16 @@ async function main() {
     );
     return;
   }
-  if (action === "enable-auto") {
+  if (action === "enable-auto" || action === "disable-auto") {
     await settings();
+    const env = {
+      XDG_RUNTIME_DIR: `/run/user/${process.getuid()}`,
+      DBUS_SESSION_BUS_ADDRESS: `unix:path=/run/user/${process.getuid()}/bus`,
+    };
+    if (action === "disable-auto") {
+      await run("systemctl", ["--user", "disable", "--now", "t3-nightly-patch.timer"], { env });
+      return;
+    }
     const unitDir = NodePath.join(NodeOS.homedir(), ".config/systemd/user");
     await NodeFSP.mkdir(unitDir, { recursive: true });
     const script = NodeURL.fileURLToPath(import.meta.url);
@@ -330,28 +338,42 @@ async function main() {
       NodePath.join(unitDir, "t3-nightly-patch.timer"),
       "[Unit]\nDescription=Check T3 nightly patches every 15 minutes\n[Timer]\nOnBootSec=5min\nOnUnitActiveSec=15min\nPersistent=true\n[Install]\nWantedBy=timers.target\n",
     );
-    const env = {
-      XDG_RUNTIME_DIR: `/run/user/${process.getuid()}`,
-      DBUS_SESSION_BUS_ADDRESS: `unix:path=/run/user/${process.getuid()}/bus`,
-    };
     await run("systemctl", ["--user", "daemon-reload"], { env });
     await run("systemctl", ["--user", "enable", "--now", "t3-nightly-patch.timer"], { env });
     return;
   }
   if (!["apply", "prepare-latest"].includes(action))
     throw new Error(
-      "Usage: t3-nightly-patch install | status | apply [version] | prepare-latest | enable-auto",
+      "Usage: t3-nightly-patch install | status | apply [version] | prepare-latest | enable-auto | disable-auto",
     );
   const lock = NodePath.join(state, "lock");
   try {
     await NodeFSP.mkdir(lock);
   } catch (error) {
     if (error.code === "EEXIST") {
-      console.log("Another patch build holds the lock");
-      return;
+      const owner = await json(NodePath.join(lock, "owner.json")).catch(() => null);
+      let alive = true;
+      if (owner?.pid) {
+        try {
+          process.kill(owner.pid, 0);
+        } catch (probe) {
+          if (probe.code === "ESRCH") alive = false;
+        }
+      }
+      if (alive) {
+        console.log("Another patch build holds the lock");
+        return;
+      }
+      await NodeFSP.rename(lock, `${lock}.stale-${Date.now()}`);
+      await NodeFSP.mkdir(lock);
+    } else {
+      throw error;
     }
-    throw error;
   }
+  await writeJson(NodePath.join(lock, "owner.json"), {
+    pid: process.pid,
+    startedAt: new Date().toISOString(),
+  });
   try {
     const release = action === "prepare-latest" ? await latestRelease() : undefined;
     await prepare(
@@ -359,6 +381,7 @@ async function main() {
       release,
     );
   } finally {
+    await NodeFSP.unlink(NodePath.join(lock, "owner.json"));
     await NodeFSP.rmdir(lock);
   }
 }
