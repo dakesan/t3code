@@ -15,6 +15,8 @@ export const layer = Layer.effectDiscard(
     const threads = yield* ThreadManagement.ThreadManagementService;
     const registry = yield* ProviderAdapterRegistry.ProviderAdapterRegistryV2;
     const scheduler = yield* Scheduler.Scheduler;
+    // Restarting or upgrading must never wake historical conversations.
+    const startedAt = DateTime.toEpochMillis(yield* DateTime.now);
     const handled = new Map<string, number>();
     yield* scheduler.register(
       "idle-compaction",
@@ -38,7 +40,12 @@ export const layer = Layer.effectDiscard(
           }
           const delay = providers.get(thread.providerInstanceId);
           const promptAt = DateTime.toEpochMillis(thread.latestUserAuthoredMessageAt);
-          if (delay == null || promptAt + delay > now || handled.get(thread.id) === promptAt)
+          if (
+            promptAt <= startedAt ||
+            delay == null ||
+            promptAt + delay > now ||
+            handled.get(thread.id) === promptAt
+          )
             continue;
           const projection = yield* threads.getThreadProjection(thread.id);
           const state = idleCompactionState(projection);

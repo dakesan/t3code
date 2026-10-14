@@ -10,6 +10,7 @@ export function idleCompactionDelayMs(provider: string): number | null {
 export function idleCompactionState(projection: OrchestrationV2ThreadProjection) {
   const { thread } = projection;
   if (thread.archivedAt !== null || thread.deletedAt !== null) return null;
+  if (thread.settledOverride === "settled" || thread.settledAt != null) return null;
   if (isProviderNativeSubagentThread(thread)) return null;
   const provider = projection.providerThreads.find(
     (item) => item.id === thread.activeProviderThreadId,
