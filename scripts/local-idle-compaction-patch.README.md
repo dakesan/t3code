@@ -23,6 +23,9 @@ node's activation, systemd or launchd stops the boot service, and recorded
 SSH-managed server PIDs receive SIGTERM. The command waits for graceful shutdown
 before replacing an active runtime. It preserves existing SSH ports and updates
 their pinned launchers. Server processes must report the selected runtime version.
+An active-looking subagent record with a completed parent and no active child run
+does not block restart; its persisted status is left unchanged. Unknown parents
+and independently active child runs continue to block restart.
 
 The fleet update is sequential, not an atomic transaction across machines. If a
 later activation fails, earlier nodes can already be updated. The fleet report
@@ -34,7 +37,12 @@ On macOS, an installed Nightly Desktop app is prepared from the matching officia
 release ZIP, with its published SHA-256 checked. The patch updates both the bundled
 backend and web client, preserving the Electron-native dependencies and their
 archive unpack flags. An isolated backend must start under that app's own Electron
-before the copy can be activated. The original app remains untouched during preparation.
+before GUI validation. GUI validation starts a separate copy through `open`, with
+a unique bundle ID and isolated `HOME` and `T3CODE_HOME`. The Electron bundle name
+and framework symlinks are preserved, and validation copies register no URL or
+document handlers. Main, renderer, and backend processes must exist and the backend
+must answer HTTP. The result is tied to the patched archive's SHA-256. The original
+app remains untouched during preparation.
 Preparation folders and app backups use `.noindex`, and prepared apps are unregistered
 from Launch Services after a smoke test, including failed tests. This keeps copies
 with the same app name and bundle ID out of normal launch resolution. The repair
@@ -47,9 +55,11 @@ existing passkeys. Desktop activation requires an explicit recorded decision
 (`allowDesktopLocalBuild: true` in the patch configuration); without that decision,
 activation stops before changing the installed app. The original app is backed up.
 Signing validation and operating-system security settings are not disabled.
-macOS Gatekeeper must also admit the prepared app before the installed app is stopped;
-successful headless Electron execution alone is insufficient. The patcher does not
-add Gatekeeper exceptions or remove quarantine attributes.
+Headless Electron execution alone is insufficient: the Launch Services GUI probe
+must pass before activation. `spctl` assesses distribution/notarization policy and
+rejects local ad-hoc builds even when they start successfully; it is not used as a
+substitute for the actual GUI probe. The patcher does not add Gatekeeper exceptions
+or remove quarantine attributes.
 
 At activation, the selected Nightly app receives SIGTERM and must exit gracefully;
 Alpha and other applications are excluded. Desktop nodes activate before CLI nodes
@@ -76,6 +86,7 @@ Other commands:
 ~/.local/bin/t3-nightly-patch status
 ~/.local/bin/t3-nightly-patch inspect
 ~/.local/bin/t3-nightly-patch repair-desktop-launch
+~/.local/bin/t3-nightly-patch validate-desktop 0.0.46-nightly.20261014.3118
 ```
 
 `apply` prepares a patched runtime without restarting services. `update` prepares

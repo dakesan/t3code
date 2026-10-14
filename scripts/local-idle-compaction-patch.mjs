@@ -14,7 +14,11 @@ import {
   inspectLocal,
   runFleet,
 } from "./local-idle-compaction-fleet.mjs";
-import { prepareDesktop, repairDesktopLaunch } from "./local-idle-compaction-desktop.mjs";
+import {
+  prepareDesktop,
+  repairDesktopLaunch,
+  validateDesktopGui,
+} from "./local-idle-compaction-desktop.mjs";
 
 let repo = NodePath.resolve(NodePath.dirname(NodeURL.fileURLToPath(import.meta.url)), "..");
 const base = "v0.0.46-nightly.20261012.3010";
@@ -337,6 +341,11 @@ async function main() {
   }
   if (action === "repair-desktop-launch") {
     await withLock(() => repairDesktopLaunch(context));
+    return;
+  }
+  if (action === "validate-desktop") {
+    if (!versionPattern.test(version)) throw new Error("Expected an exact nightly version");
+    await withLock(() => validateDesktopGui(context, version));
     return;
   }
   if (action === "update" || action === "update-all") {

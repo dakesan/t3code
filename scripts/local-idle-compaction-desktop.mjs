@@ -53,6 +53,21 @@ export function repairStagingPath(appPath) {
     : NodePath.join(parent + ".noindex", NodePath.basename(appPath));
 }
 
+export function guiValidationMetadata(original) {
+  const info = {
+    ...original,
+    CFBundleIdentifier: "bio.logomix.t3-patch-validation",
+    CFBundleDisplayName: "T3 Patch Validation",
+  };
+  // Electron resolves helper executables using the original bundle name.
+  delete info.CFBundleURLTypes;
+  delete info.CFBundleDocumentTypes;
+  return info;
+}
+
+export const copyDesktopApp = (source, destination) =>
+  NodeFSP.cp(source, destination, { recursive: true, verbatimSymlinks: true });
+
 export async function repairDesktopLaunch(ctx) {
   if (NodeOS.platform() !== "darwin") throw new Error("Desktop launch repair is macOS-only");
   const root = NodePath.join(ctx.state, "desktop");
@@ -303,6 +318,113 @@ async function smokeDesktop(ctx, desktop, appPath, work) {
   if (child.exitCode === null) throw new Error("Isolated Desktop backend did not stop gracefully");
 }
 
+export async function validateDesktopGui(ctx, version) {
+  if (NodeOS.platform() !== "darwin") throw new Error("Desktop validation is macOS-only");
+  const readyFile = NodePath.join(ctx.state, `desktop-ready-${version}.json`);
+  const ready = await ctx.json(readyFile);
+  if (
+    hash(await NodeFSP.readFile(NodePath.join(ready.stagedApp, "Contents/Resources/app.asar"))) !==
+    ready.asarSha256
+  )
+    throw new Error("Prepared Desktop archive changed before GUI validation");
+  const work = NodePath.join(ctx.state, "desktop", `gui-${Date.now()}.noindex`);
+  const appPath = NodePath.join(work, "T3 Patch Validation.app");
+  const home = NodePath.join(work, "home");
+  await NodeFSP.mkdir(home, { recursive: true });
+  await copyDesktopApp(ready.stagedApp, appPath);
+  const plist = NodePath.join(appPath, "Contents/Info.plist");
+  const infoJson = NodePath.join(work, "info.json");
+  await ctx.run("plutil", ["-convert", "json", "-o", infoJson, plist]);
+  const info = guiValidationMetadata(await ctx.json(infoJson));
+  await ctx.writeJson(plist, info);
+  await ctx.run("plutil", ["-convert", "xml1", plist]);
+  await ctx.run("codesign", [
+    "--force",
+    "--sign",
+    "-",
+    "--preserve-metadata=entitlements,flags,runtime",
+    appPath,
+  ]);
+  await ctx.run("codesign", ["--verify", "--deep", "--strict", appPath]);
+  const executable = NodePath.join(appPath, "Contents/MacOS", info.CFBundleExecutable);
+  const t3Home = NodePath.join(home, ".t3");
+  let owned = { pids: [], mainPids: [], backendPids: [] };
+  let validated = false;
+  const snapshot = async () => {
+    const ps = await ctx.run("ps", ["-axo", "pid=,command="], { capture: true });
+    const rows = ps.split("\n").flatMap((line) => {
+      const match = line.trim().match(/^(\d+)\s+(.*)$/);
+      return match ? [{ pid: Number(match[1]), command: match[2] }] : [];
+    });
+    return {
+      ...desktopProcesses(rows, appPath, executable),
+      rendererPids: rows
+        .filter(
+          (row) => row.command.startsWith(appPath + "/") && row.command.includes("--type=renderer"),
+        )
+        .map((row) => row.pid),
+    };
+  };
+  try {
+    await ctx.run("open", [
+      "-n",
+      "-g",
+      "-j",
+      "-a",
+      appPath,
+      "--env",
+      `HOME=${home}`,
+      "--env",
+      `T3CODE_HOME=${t3Home}`,
+      "--env",
+      "T3CODE_DISABLE_AUTO_UPDATE=1",
+      "--stdout",
+      NodePath.join(work, "gui.stdout.log"),
+      "--stderr",
+      NodePath.join(work, "gui.stderr.log"),
+    ]);
+    for (let attempt = 0; attempt < 90; attempt++) {
+      owned = await snapshot();
+      const runtime = await ctx
+        .json(NodePath.join(t3Home, "userdata/server-runtime.json"))
+        .catch(() => null);
+      if (
+        owned.mainPids.length &&
+        owned.rendererPids.length &&
+        owned.backendPids.includes(runtime?.pid)
+      ) {
+        const response = await fetch(`http://127.0.0.1:${runtime.port}/`, {
+          signal: AbortSignal.timeout(1000),
+        }).catch(() => null);
+        if (response?.ok) {
+          validated = true;
+          break;
+        }
+      }
+      await sleep(500);
+    }
+    if (!validated) throw new Error(`Desktop GUI did not become ready; isolated state: ${home}`);
+    console.log(
+      `Desktop GUI started via Launch Services: main=${owned.mainPids.join(",")}, renderer=${owned.rendererPids.join(",")}, backend=${owned.backendPids.join(",")}`,
+    );
+  } finally {
+    owned = await snapshot();
+    for (const pid of owned.mainPids) if (alive(pid)) process.kill(pid, "SIGTERM");
+    for (let attempt = 0; attempt < 60 && owned.pids.some(alive); attempt++) await sleep(500);
+    await unregisterDesktopCopy(ctx, appPath);
+  }
+  if (owned.pids.some(alive)) throw new Error("Isolated GUI processes have not stopped gracefully");
+  ready.guiValidatedAt = new Date().toISOString();
+  ready.guiValidation = {
+    appPath,
+    isolatedHome: home,
+    mainAndRendererAndBackend: true,
+    asarSha256: ready.asarSha256,
+  };
+  await ctx.writeJson(readyFile, ready);
+  return ready;
+}
+
 export async function prepareDesktop(ctx, version) {
   const desktop = await discoverDesktop(ctx, []);
   if (!desktop) return;
@@ -324,6 +446,8 @@ export async function prepareDesktop(ctx, version) {
       ) === previous.asarSha256
     ) {
       await ctx.run("codesign", ["--verify", "--deep", "--strict", previous.stagedApp]);
+      if (previous.guiValidation?.asarSha256 !== previous.asarSha256)
+        await validateDesktopGui(ctx, version);
       console.log(`${version}: patched Desktop app already prepared`);
       return;
     }
@@ -392,6 +516,7 @@ export async function prepareDesktop(ctx, version) {
     await unregisterDesktopCopy(ctx, stagedApp);
   }
   await ctx.writeJson(readyFile, record);
+  await validateDesktopGui(ctx, version);
   console.log(`${version}: patched Desktop app prepared; the running app is unchanged.`);
 }
 
@@ -410,6 +535,11 @@ export async function activateDesktop(ctx, version, info, inspect) {
     return;
   }
   const ready = await ctx.json(NodePath.join(ctx.state, `desktop-ready-${version}.json`));
+  if (
+    !ready.guiValidation?.mainAndRendererAndBackend ||
+    ready.guiValidation.asarSha256 !== ready.asarSha256
+  )
+    throw new Error("Prepared Desktop app requires successful GUI validation before activation");
   if (ready.appPath !== desktop.appPath || ready.featureHash !== config.featureHash)
     throw new Error("Prepared Desktop app does not match this installation");
   if (
@@ -425,9 +555,9 @@ export async function activateDesktop(ctx, version, info, inspect) {
     "desktop-backups.noindex",
     `${Date.now()}-${NodePath.basename(desktop.appPath)}`,
   );
-  // Headless Electron startup does not prove Launch Services will admit the app.
-  // Assess before stopping anything; never override macOS security policy here.
-  await ctx.run("spctl", ["--assess", "--type", "execute", ready.stagedApp]);
+  // spctl checks distribution/notarization policy and rejects local ad-hoc builds.
+  // Use the actual Launch Services GUI probe, bound to the patched archive, instead.
+  await ctx.run("codesign", ["--verify", "--deep", "--strict", ready.stagedApp]);
   await NodeFSP.mkdir(NodePath.dirname(backup), { recursive: true });
   const wasRunning = fresh.desktop.mainPids.length > 0;
   for (const pid of fresh.desktop.mainPids) if (alive(pid)) process.kill(pid, "SIGTERM");
