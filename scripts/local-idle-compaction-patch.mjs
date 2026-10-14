@@ -117,12 +117,26 @@ async function settings() {
   if (!/^[a-f0-9]{40}$/.test(config.patchCommit)) throw new Error("Invalid patch commit");
   return config;
 }
+async function featureHash(commit) {
+  if (!/^[a-f0-9]{40}$/.test(commit)) throw new Error("Invalid feature commit");
+  const patch = await run("git", ["diff", "--binary", base, commit, "--", "apps", "packages"], {
+    capture: true,
+  });
+  return NodeCrypto.createHash("sha256").update(patch).digest("hex");
+}
+async function samePatch(record, config) {
+  return (
+    record.patchCommit === config.patchCommit ||
+    (record.featureHash ?? (await featureHash(record.patchCommit))) ===
+      (config.featureHash ?? (await featureHash(config.patchCommit)))
+  );
+}
 async function prepare(version, release) {
   if (!versionPattern.test(version)) throw new Error("Expected an exact nightly version");
   const config = await settings();
   const target = NodePath.join(versions, version);
   const marker = NodePath.join(target, markerName);
-  if ((await exists(marker)) && (await json(marker)).patchCommit === config.patchCommit) {
+  if ((await exists(marker)) && (await samePatch(await json(marker), config))) {
     console.log(`${version}: patch already installed`);
     return;
   }
@@ -130,14 +144,17 @@ async function prepare(version, release) {
   if (await exists(pendingFile)) {
     const pending = await json(pendingFile);
     if (
-      pending.patchCommit === config.patchCommit &&
+      (await samePatch(pending, config)) &&
       (await exists(NodePath.join(pending.staging, markerName)))
     ) {
       await publish(version, pending.staging, config.patchCommit);
       return;
     }
   }
-  const work = NodePath.join(state, "builds", `${version}-${Date.now()}`);
+  const work = NodePath.join(
+    config.buildRoot ?? NodePath.join(state, "builds"),
+    `${version}-${Date.now()}`,
+  );
   const source = NodePath.join(work, "source");
   const staging = NodePath.join(versions, `.idle-patch-${version}-${process.pid}`);
   await NodeFSP.mkdir(source, { recursive: true });
@@ -203,7 +220,7 @@ async function prepare(version, release) {
     const official = NodePath.join(work, "official.tar.gz");
     await NodeFSP.writeFile(official, bytes);
     await NodeFSP.mkdir(staging, { recursive: true });
-    await run("tar", ["-xzf", official, "-C", staging]);
+    await run("tar", ["-xzf", official, "--strip-components=1", "-C", staging]);
     if (!(await exists(NodePath.join(staging, "t3"))))
       throw new Error("Unexpected official archive layout");
   }
@@ -221,6 +238,19 @@ async function prepare(version, release) {
   );
   const actual = await run(NodePath.join(staging, "t3"), ["--version"], { capture: true });
   if (!actual.includes(version)) throw new Error(`Unexpected built version: ${actual}`);
+  const smokeArchive = NodePath.join(work, "patched-smoke.tar.gz");
+  await run("tar", [
+    "-czf",
+    smokeArchive,
+    "-C",
+    NodePath.dirname(staging),
+    NodePath.basename(staging),
+  ]);
+  await run(
+    "node",
+    ["scripts/smoke-cli-archive.ts", "--archive", smokeArchive, "--expect-version", version],
+    { cwd: source },
+  );
   await NodeFSP.writeFile(NodePath.join(staging, ".install-complete"), version + "\n");
   await writeJson(NodePath.join(staging, markerName), {
     version,
@@ -240,7 +270,15 @@ async function main() {
     const patchCommit = await run("git", ["rev-parse", "HEAD"], { capture: true });
     if (await run("git", ["status", "--porcelain"], { capture: true }))
       throw new Error("Commit the patch before installing");
-    await writeJson(configFile, { repo, patchCommit, base });
+    const previous = (await exists(configFile)) ? await json(configFile) : {};
+    await writeJson(configFile, {
+      repo,
+      patchCommit,
+      base,
+      featureHash: await featureHash(patchCommit),
+      buildRoot:
+        process.env.T3_PATCH_BUILD_DIR ?? previous.buildRoot ?? NodePath.join(state, "builds"),
+    });
     const command = NodePath.join(NodeOS.homedir(), ".local/bin/t3-nightly-patch");
     if (
       (await exists(command)) &&
