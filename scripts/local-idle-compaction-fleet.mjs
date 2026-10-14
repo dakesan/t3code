@@ -266,10 +266,12 @@ export async function activateLocal(ctx, version) {
       throw new Error("A server did not stop gracefully; no runtime was replaced");
     if (staged !== target) {
       await ctx.publish(version, staged, config.patchCommit);
+      if (await ctx.exists(staged))
+        throw new Error("The runtime was started concurrently; activation remains pending");
       published = true;
     }
-    await startService(version);
     serviceStarted = info.service;
+    await startService(version);
     for (const server of originals)
       await startManaged(
         server,
