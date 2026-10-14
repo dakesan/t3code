@@ -24,6 +24,66 @@ const alive = (pid) => {
   }
 };
 const markerName = ".idle-compaction-patch.json";
+const lsregister =
+  "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
+
+export async function unregisterDesktopCopy(ctx, appPath) {
+  if (NodeOS.platform() !== "darwin") return;
+  const before = await ctx.run(lsregister, ["-dump"], { capture: true });
+  if (!launchRegistryPaths(before).includes(appPath)) return;
+  try {
+    await ctx.run(lsregister, ["-u", appPath]);
+  } catch (error) {
+    const dump = await ctx.run(lsregister, ["-dump"], { capture: true });
+    if (launchRegistryPaths(dump).includes(appPath)) throw error;
+  }
+}
+
+export function launchRegistryPaths(dump) {
+  return dump.split("\n").flatMap((line) => {
+    const match = line.match(/^\s*path:\s+(.*?)\s+\(0x[0-9a-f]+\)\s*$/i);
+    return match ? [match[1]] : [];
+  });
+}
+
+export function repairStagingPath(appPath) {
+  const parent = NodePath.dirname(appPath);
+  return parent.endsWith(".noindex")
+    ? appPath
+    : NodePath.join(parent + ".noindex", NodePath.basename(appPath));
+}
+
+export async function repairDesktopLaunch(ctx) {
+  if (NodeOS.platform() !== "darwin") throw new Error("Desktop launch repair is macOS-only");
+  const root = NodePath.join(ctx.state, "desktop");
+  const moves = [];
+  for (const entry of await NodeFSP.readdir(root, { withFileTypes: true }).catch(() => [])) {
+    if (!entry.isDirectory()) continue;
+    const parent = NodePath.join(root, entry.name);
+    const appPath = NodePath.join(parent, "T3 Code (Nightly).app");
+    if (!(await exists(appPath))) continue;
+    await unregisterDesktopCopy(ctx, appPath);
+    const repaired = repairStagingPath(appPath);
+    if (repaired !== appPath) {
+      await NodeFSP.rename(parent, NodePath.dirname(repaired));
+      moves.push([appPath, repaired]);
+    }
+  }
+  for (const name of await NodeFSP.readdir(ctx.state)) {
+    if (!/^desktop-ready-.*\.json$/.test(name)) continue;
+    const file = NodePath.join(ctx.state, name);
+    const ready = await ctx.json(file);
+    for (const [before, after] of moves) if (ready.stagedApp === before) ready.stagedApp = after;
+    await ctx.writeJson(file, ready);
+  }
+  const desktop = await discoverDesktop(ctx, []);
+  if (!desktop) throw new Error("Installed Nightly app not found");
+  await ctx.run("codesign", ["--verify", "--deep", "--strict", desktop.appPath]);
+  await ctx.run("spctl", ["--assess", "--type", "execute", desktop.appPath]);
+  await ctx.run(lsregister, ["-f", desktop.appPath]);
+  await ctx.run("open", ["-a", desktop.appPath]);
+  console.log(`Official Nightly reopened: ${desktop.appPath}; staged copies unregistered.`);
+}
 
 async function installedPatch(ctx, desktop, version, featureHash) {
   const record = await ctx
@@ -284,7 +344,7 @@ export async function prepareDesktop(ctx, version) {
     (progress?.version === version ? NodePath.join(progress.work, "source") : null);
   if (!source || !(await ctx.exists(NodePath.join(source, "apps/server/dist/bin.mjs"))))
     throw new Error("Desktop preparation requires the matching source build");
-  const work = NodePath.join(ctx.state, "desktop", `${version}-${Date.now()}`);
+  const work = NodePath.join(ctx.state, "desktop", `${version}-${Date.now()}.noindex`);
   await NodeFSP.mkdir(work, { recursive: true });
   const response = await fetch(
     `https://api.github.com/repos/pingdotgg/t3code/releases/tags/v${version}`,
@@ -310,22 +370,27 @@ export async function prepareDesktop(ctx, version) {
   await ctx.run("ditto", ["-x", "-k", zip, work]);
   const stagedApp = NodePath.join(work, NodePath.basename(desktop.appPath));
   if (!(await ctx.exists(stagedApp))) throw new Error("Unexpected Desktop archive layout");
-  const asar = await loadAsar(source);
-  const asarSha256 = await repackDesktop(asar, stagedApp, source, work);
-  const record = {
-    formatVersion: 2,
-    version,
-    featureHash: config.featureHash,
-    appPath: desktop.appPath,
-    stagedApp,
-    asarSha256,
-    signing: "ad-hoc",
-    browserPasskeys: false,
-    preparedAt: new Date().toISOString(),
-  };
-  await ctx.writeJson(NodePath.join(stagedApp, "Contents/Resources", markerName), record);
-  await signLocalDesktop(ctx, stagedApp, work);
-  await smokeDesktop(ctx, desktop, stagedApp, work);
+  let record;
+  try {
+    const asar = await loadAsar(source);
+    const asarSha256 = await repackDesktop(asar, stagedApp, source, work);
+    record = {
+      formatVersion: 2,
+      version,
+      featureHash: config.featureHash,
+      appPath: desktop.appPath,
+      stagedApp,
+      asarSha256,
+      signing: "ad-hoc",
+      browserPasskeys: false,
+      preparedAt: new Date().toISOString(),
+    };
+    await ctx.writeJson(NodePath.join(stagedApp, "Contents/Resources", markerName), record);
+    await signLocalDesktop(ctx, stagedApp, work);
+    await smokeDesktop(ctx, desktop, stagedApp, work);
+  } finally {
+    await unregisterDesktopCopy(ctx, stagedApp);
+  }
   await ctx.writeJson(readyFile, record);
   console.log(`${version}: patched Desktop app prepared; the running app is unchanged.`);
 }
@@ -357,9 +422,12 @@ export async function activateDesktop(ctx, version, info, inspect) {
     throw new Error("Desktop state changed; retry after active work finishes");
   const backup = NodePath.join(
     ctx.state,
-    "desktop-backups",
+    "desktop-backups.noindex",
     `${Date.now()}-${NodePath.basename(desktop.appPath)}`,
   );
+  // Headless Electron startup does not prove Launch Services will admit the app.
+  // Assess before stopping anything; never override macOS security policy here.
+  await ctx.run("spctl", ["--assess", "--type", "execute", ready.stagedApp]);
   await NodeFSP.mkdir(NodePath.dirname(backup), { recursive: true });
   const wasRunning = fresh.desktop.mainPids.length > 0;
   for (const pid of fresh.desktop.mainPids) if (alive(pid)) process.kill(pid, "SIGTERM");
@@ -370,9 +438,11 @@ export async function activateDesktop(ctx, version, info, inspect) {
   await NodeFSP.rename(desktop.appPath, backup);
   let installed = false;
   try {
+    await unregisterDesktopCopy(ctx, backup);
     await NodeFSP.rename(ready.stagedApp, desktop.appPath);
     installed = true;
     if (wasRunning) {
+      await ctx.run(lsregister, ["-f", desktop.appPath]);
       await ctx.run("open", ["-a", desktop.appPath]);
       let verified = false;
       for (let attempt = 0; attempt < 120; attempt++) {
@@ -416,6 +486,7 @@ export async function activateDesktop(ctx, version, info, inspect) {
       await NodeFSP.rename(desktop.appPath, `${backup}.failed`);
     }
     await NodeFSP.rename(backup, desktop.appPath);
+    await ctx.run(lsregister, ["-f", desktop.appPath]);
     if (wasRunning) await ctx.run("open", ["-a", desktop.appPath]);
     throw error;
   }
