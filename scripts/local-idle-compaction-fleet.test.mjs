@@ -1,7 +1,45 @@
 import * as NodeAssert from "node:assert/strict";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeTest from "node:test";
-import { assertReady, fleetTransaction, quote } from "./local-idle-compaction-fleet.mjs";
+import {
+  assertReady,
+  fleetTransaction,
+  quote,
+  countActiveWork,
+} from "./local-idle-compaction-fleet.mjs";
+
+NodeTest.test(
+  "stale subagent projections cannot permanently block restarts, while live and unknown work does",
+  async () => {
+    const { DatabaseSync } = await import("node:sqlite");
+    const db = new DatabaseSync(":memory:");
+    try {
+      db.exec(
+        "CREATE TABLE orchestration_v2_projection_runs (run_id TEXT, thread_id TEXT, status TEXT); CREATE TABLE orchestration_v2_projection_runtime_requests (status TEXT); CREATE TABLE orchestration_v2_projection_subagents (run_id TEXT, child_thread_id TEXT, status TEXT)",
+      );
+      db.exec(
+        "INSERT INTO orchestration_v2_projection_runs VALUES ('parent','thread','completed'); INSERT INTO orchestration_v2_projection_subagents VALUES ('parent','child','running')",
+      );
+      NodeAssert.equal(countActiveWork(db), 0);
+      db.exec("UPDATE orchestration_v2_projection_runs SET status='running'");
+      NodeAssert.ok(countActiveWork(db) > 0);
+      db.exec(
+        "UPDATE orchestration_v2_projection_runs SET status='completed'; INSERT INTO orchestration_v2_projection_runs VALUES ('child-run','child','running')",
+      );
+      NodeAssert.ok(countActiveWork(db) > 0);
+      db.exec(
+        "UPDATE orchestration_v2_projection_runs SET status='completed'; DELETE FROM orchestration_v2_projection_runs WHERE run_id='parent'",
+      );
+      NodeAssert.equal(countActiveWork(db), 1);
+      db.exec(
+        "DELETE FROM orchestration_v2_projection_subagents; INSERT INTO orchestration_v2_projection_runtime_requests VALUES ('pending')",
+      );
+      NodeAssert.equal(countActiveWork(db), 1);
+    } finally {
+      db.close();
+    }
+  },
+);
 
 NodeTest.test("remote arguments remain literal shell data", () => {
   const value = "path with ' quotes $(exit 17) `exit 19`\nsecond line";
