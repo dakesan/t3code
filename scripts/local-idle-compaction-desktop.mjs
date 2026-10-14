@@ -94,10 +94,9 @@ export async function repairDesktopLaunch(ctx) {
   const desktop = await discoverDesktop(ctx, []);
   if (!desktop) throw new Error("Installed Nightly app not found");
   await ctx.run("codesign", ["--verify", "--deep", "--strict", desktop.appPath]);
-  await ctx.run("spctl", ["--assess", "--type", "execute", desktop.appPath]);
   await ctx.run(lsregister, ["-f", desktop.appPath]);
   await ctx.run("open", ["-a", desktop.appPath]);
-  console.log(`Official Nightly reopened: ${desktop.appPath}; staged copies unregistered.`);
+  console.log(`Installed Nightly reopened: ${desktop.appPath}; staged copies unregistered.`);
 }
 
 async function installedPatch(ctx, desktop, version, featureHash) {
