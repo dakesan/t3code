@@ -1,6 +1,6 @@
 # Local nightly auto-compaction patch
 
-Run this command on Logomix after updating the Desktop client:
+Run this command on Logomix:
 
 ```sh
 ~/.local/bin/t3-nightly-patch update-all
@@ -30,10 +30,25 @@ records the last successful phase per node. A failed local activation attempts
 to restart former launchers; rollback errors remain visible. No database is
 restored or rewritten by the updater.
 
-CLI runtime patching does not modify an Electron Desktop app's bundled backend
-or frontend, or rebuild a native mobile app. A running Desktop backend blocks
-activation. A Desktop client reconnecting with an older pinned server version
-can rewrite an SSH launcher, so update that client before running this command.
+On macOS, an installed Nightly Desktop app is prepared from the matching official
+release ZIP, with its published SHA-256 checked. The patch updates both the bundled
+backend and web client, preserving the Electron-native dependencies and their
+archive unpack flags. An isolated backend must start under that app's own Electron
+before the copy can be activated. The original app remains untouched during preparation.
+
+A modified macOS app requires a local ad-hoc signature. The official developer and
+keychain-group entitlements cannot be carried by that signature, so the local build
+disables the embedded browser's passkey/Touch ID integration. It does not delete
+existing passkeys. Desktop activation requires an explicit recorded decision
+(`allowDesktopLocalBuild: true` in the patch configuration); without that decision,
+activation stops before changing the installed app. The original app is backed up.
+Signing validation and operating-system security settings are not disabled.
+
+At activation, the selected Nightly app receives SIGTERM and must exit gracefully;
+Alpha and other applications are excluded. Desktop nodes activate before CLI nodes
+so an old client's reconnect cannot restore an older SSH runtime. The new backend's
+PID and HTTP endpoint are checked. Failed startup restores and reopens the former app.
+Native mobile apps still require their own rebuild.
 
 The backend patch targets every non-archived, non-deleted T3 conversation using
 Claude Code or Codex, excluding provider-native subagents. It sends `/compact`

@@ -4,6 +4,7 @@ import * as NodePath from "node:path";
 import * as NodeOS from "node:os";
 import * as NodeCrypto from "node:crypto";
 import * as NodeChildProcess from "node:child_process";
+import { discoverDesktop, activateDesktop } from "./local-idle-compaction-desktop.mjs";
 
 export const quote = (value) => "'" + String(value).replaceAll("'", "'\\''") + "'";
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -36,7 +37,11 @@ export async function exportPatch(ctx) {
     patchCommit: config.patchCommit,
     featureHash: hash,
   });
-  for (const name of ["local-idle-compaction-patch.mjs", "local-idle-compaction-fleet.mjs"])
+  for (const name of [
+    "local-idle-compaction-patch.mjs",
+    "local-idle-compaction-fleet.mjs",
+    "local-idle-compaction-desktop.mjs",
+  ])
     await NodeFSP.copyFile(
       NodePath.join(NodePath.dirname(ctx.script), name),
       NodePath.join(root, name),
@@ -86,7 +91,7 @@ export async function inspectLocal(ctx) {
       return match ? { pid: Number(match[1]), command: match[2] } : null;
     })
     .filter(Boolean);
-  const desktop = processes.some((p) => /T3 Code[^/]*\.app\/.*(?:MacOS|Electron)/i.test(p.command));
+  const desktop = await discoverDesktop(ctx, processes);
   const plist = NodePath.join(
     NodeOS.homedir(),
     "Library/LaunchAgents/com.t3tools.t3code.service.plist",
@@ -166,12 +171,12 @@ export async function inspectLocal(ctx) {
 }
 
 export function assertReady(info) {
-  if (info.desktop)
-    throw new Error(
-      "A bundled Desktop backend is running; CLI patching cannot update that backend. Close or update the Desktop app first.",
-    );
+  if (info.desktop && typeof info.desktop !== "object")
+    throw new Error("The Desktop installation could not be identified for patching.");
   if (info.busy) throw new Error(`Active agent work (${info.busy}); retry after it finishes.`);
-  if (!info.service && !info.managed.length)
+  if (info.desktop && (info.service || info.managed.length))
+    throw new Error("Desktop and CLI launchers share a node; refusing an ambiguous restart");
+  if (!info.desktop && !info.service && !info.managed.length)
     throw new Error("No supported T3 service or SSH-managed server found");
 }
 
@@ -179,6 +184,7 @@ export async function activateLocal(ctx, version) {
   if (!versionPattern.test(version)) throw new Error("Expected an exact nightly version");
   const info = await inspectLocal(ctx);
   assertReady(info);
+  if (info.desktop) return activateDesktop(ctx, version, info, () => inspectLocal(ctx));
   const pending = await ctx
     .json(NodePath.join(ctx.state, `pending-${version}.json`))
     .catch(() => null);
@@ -325,7 +331,13 @@ export async function activateLocal(ctx, version) {
   }
 }
 
-export async function fleetTransaction(nodes, prepare, preflight, activate) {
+export async function fleetTransaction(
+  nodes,
+  prepare,
+  preflight,
+  activate,
+  activationOrder = () => nodes,
+) {
   // Every node must be reachable before builds or service changes begin.
   const checkAll = async () => {
     const results = await Promise.allSettled(nodes.map(preflight));
@@ -337,7 +349,7 @@ export async function fleetTransaction(nodes, prepare, preflight, activate) {
   await checkAll();
   for (const node of nodes) await prepare(node);
   await checkAll();
-  for (const node of nodes) await activate(node);
+  for (const node of activationOrder()) await activate(node);
 }
 
 export async function runFleet(ctx, version) {
@@ -349,6 +361,7 @@ export async function runFleet(ctx, version) {
       "owner-Super-Server": "logomix",
       "oodake-home-ubuntu": "myhome",
       "HiroyukinoMac-mini.local": "macmini",
+      "OdakeMac.local": "macbook",
     }[NodeOS.hostname()];
   if (!localNode)
     throw new Error("Set localNode in the patch config to one of logomix/macmini/myhome/macbook");
@@ -410,6 +423,7 @@ export async function runFleet(ctx, version) {
           "feature.patch",
           "local-idle-compaction-patch.mjs",
           "local-idle-compaction-fleet.mjs",
+          "local-idle-compaction-desktop.mjs",
         ].map((name) => NodePath.join(payload, name)),
         `${node}:${root}/`,
       ]);
@@ -449,6 +463,12 @@ export async function runFleet(ctx, version) {
         report.nodes[node] = { status: "active" };
         await ctx.writeJson(reportFile, report);
       },
+      () =>
+        [...nodes].sort(
+          (a, b) =>
+            Number(Boolean(report.nodes[b].inspection?.desktop)) -
+            Number(Boolean(report.nodes[a].inspection?.desktop)),
+        ),
     );
     report.completedAt = new Date().toISOString();
   } catch (error) {

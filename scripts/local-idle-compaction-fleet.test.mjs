@@ -100,6 +100,26 @@ NodeTest.test("all builds finish before any server is restarted", async () => {
   NodeAssert.deepEqual(events, ["build a", "build b", "restart a", "restart b"]);
 });
 
+NodeTest.test(
+  "Desktop activation can precede remote server restarts without changing build order",
+  async () => {
+    const events = [];
+    await fleetTransaction(
+      ["cli", "desktop"],
+      async (node) => events.push(`build ${node}`),
+      async () => {},
+      async (node) => events.push(`activate ${node}`),
+      () => ["desktop", "cli"],
+    );
+    NodeAssert.deepEqual(events, [
+      "build cli",
+      "build desktop",
+      "activate desktop",
+      "activate cli",
+    ]);
+  },
+);
+
 NodeTest.test("Desktop and unknown launch methods cannot be reported as patched", () => {
   NodeAssert.throws(
     () => assertReady({ desktop: true, service: true, managed: [], busy: 0 }),

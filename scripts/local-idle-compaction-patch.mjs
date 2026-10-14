@@ -14,6 +14,7 @@ import {
   inspectLocal,
   runFleet,
 } from "./local-idle-compaction-fleet.mjs";
+import { prepareDesktop } from "./local-idle-compaction-desktop.mjs";
 
 let repo = NodePath.resolve(NodePath.dirname(NodeURL.fileURLToPath(import.meta.url)), "..");
 const base = "v0.0.46-nightly.20261012.3010";
@@ -281,6 +282,7 @@ async function prepare(version, release) {
     version,
     patchCommit: config.patchCommit,
     featureHash: config.featureHash,
+    sourcePath: source,
     builtAt: new Date().toISOString(),
     sha256: NodeCrypto.createHash("sha256")
       .update(await NodeFSP.readFile(NodePath.join(staging, "t3")))
@@ -328,6 +330,11 @@ async function main() {
     await withLock(() => activateLocal(context, version));
     return;
   }
+  if (action === "prepare-desktop") {
+    if (!versionPattern.test(version)) throw new Error("Expected an exact nightly version");
+    await withLock(() => prepareDesktop(context, version));
+    return;
+  }
   if (action === "update" || action === "update-all") {
     const target = version ?? (await latestRelease()).tag_name.slice(1);
     if (!versionPattern.test(target)) throw new Error("Expected an exact nightly version");
@@ -343,6 +350,9 @@ async function main() {
       throw new Error("Commit the patch before installing");
     const previous = (await exists(configFile)) ? await json(configFile) : {};
     await writeJson(configFile, {
+      localNode: previous.localNode,
+      desktopAppPath: previous.desktopAppPath,
+      allowDesktopLocalBuild: previous.allowDesktopLocalBuild,
       repo,
       patchCommit,
       base,
@@ -403,10 +413,9 @@ async function main() {
     );
   await withLock(async () => {
     const release = action === "prepare-latest" ? await latestRelease() : undefined;
-    await prepare(
-      release ? release.tag_name.slice(1) : (version ?? (await installedVersion())),
-      release,
-    );
+    const target = release ? release.tag_name.slice(1) : (version ?? (await installedVersion()));
+    await prepare(target, release);
+    await prepareDesktop(context, target);
   });
 }
 
