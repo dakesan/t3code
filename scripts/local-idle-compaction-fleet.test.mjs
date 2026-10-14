@@ -28,6 +28,28 @@ NodeTest.test("an offline node prevents every build and activation", async () =>
   NodeAssert.deepEqual(events, []);
 });
 
+NodeTest.test("preflight reports every blocked node before returning", async () => {
+  const inspected = [];
+  await NodeAssert.rejects(
+    fleetTransaction(
+      ["busy", "desktop"],
+      async () => {},
+      async (node) => {
+        await Promise.resolve();
+        inspected.push(node);
+        throw new Error(node === "busy" ? "Active agent work" : "Desktop backend");
+      },
+      async () => {},
+    ),
+    (error) => {
+      NodeAssert.match(error.message, /busy: Error: Active agent work/);
+      NodeAssert.match(error.message, /desktop: Error: Desktop backend/);
+      return true;
+    },
+  );
+  NodeAssert.deepEqual(inspected, ["busy", "desktop"]);
+});
+
 NodeTest.test("a patch conflict leaves every server running its former version", async () => {
   const active = [];
   await NodeAssert.rejects(

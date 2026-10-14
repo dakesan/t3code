@@ -327,9 +327,16 @@ export async function activateLocal(ctx, version) {
 
 export async function fleetTransaction(nodes, prepare, preflight, activate) {
   // Every node must be reachable before builds or service changes begin.
-  await Promise.all(nodes.map(preflight));
+  const checkAll = async () => {
+    const results = await Promise.allSettled(nodes.map(preflight));
+    const failures = results.flatMap((result, index) =>
+      result.status === "rejected" ? [`${nodes[index]}: ${String(result.reason)}`] : [],
+    );
+    if (failures.length) throw new Error(failures.join("\n"));
+  };
+  await checkAll();
   for (const node of nodes) await prepare(node);
-  await Promise.all(nodes.map(preflight));
+  await checkAll();
   for (const node of nodes) await activate(node);
 }
 
@@ -428,7 +435,14 @@ export async function runFleet(ctx, version) {
         await ctx.writeJson(reportFile, report);
       },
       async (node) => {
-        assertReady(JSON.parse((await call(node, "inspect", true)).split("\n").at(-1)));
+        try {
+          const inspection = JSON.parse((await call(node, "inspect", true)).split("\n").at(-1));
+          report.nodes[node] = { ...report.nodes[node], inspection };
+          assertReady(inspection);
+        } catch (error) {
+          report.nodes[node] = { ...report.nodes[node], status: "blocked", error: String(error) };
+          throw error;
+        }
       },
       async (node) => {
         await call(node, "activate");
