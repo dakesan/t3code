@@ -9,7 +9,32 @@ import {
   desktopProcesses,
   loadAsar,
   repackDesktop,
+  repairStagingPath,
+  launchRegistryPaths,
 } from "./local-idle-compaction-desktop.mjs";
+
+NodeTest.test(
+  "staged apps remain outside normal indexing without changing the bundle itself",
+  () => {
+    const app = "/state/desktop/version/T3 Code (Nightly).app";
+    const repaired = repairStagingPath(app);
+    NodeAssert.equal(repaired, "/state/desktop/version.noindex/T3 Code (Nightly).app");
+    NodeAssert.equal(repairStagingPath(repaired), repaired);
+  },
+);
+
+NodeTest.test(
+  "Launch Services registrations distinguish the installed app and staged copies",
+  () => {
+    const dump =
+      "path:       /Applications/T3 Code (Nightly).app (0x1234)\npath: /state/version.noindex/T3 Code (Nightly).app (0xABCDE)\nname: T3 Code (Nightly)\npath: /state/another.app/Contents/Helper.app (0x7890)\n";
+    NodeAssert.deepEqual(launchRegistryPaths(dump), [
+      "/Applications/T3 Code (Nightly).app",
+      "/state/version.noindex/T3 Code (Nightly).app",
+      "/state/another.app/Contents/Helper.app",
+    ]);
+  },
+);
 
 const root = NodeURL.fileURLToPath(new URL("../", import.meta.url));
 

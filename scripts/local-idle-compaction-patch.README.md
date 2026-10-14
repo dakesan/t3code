@@ -35,6 +35,10 @@ release ZIP, with its published SHA-256 checked. The patch updates both the bund
 backend and web client, preserving the Electron-native dependencies and their
 archive unpack flags. An isolated backend must start under that app's own Electron
 before the copy can be activated. The original app remains untouched during preparation.
+Preparation folders and app backups use `.noindex`, and prepared apps are unregistered
+from Launch Services after a smoke test, including failed tests. This keeps copies
+with the same app name and bundle ID out of normal launch resolution. The repair
+command below unregisters older copies and reopens the official installed app.
 
 A modified macOS app requires a local ad-hoc signature. The official developer and
 keychain-group entitlements cannot be carried by that signature, so the local build
@@ -43,6 +47,9 @@ existing passkeys. Desktop activation requires an explicit recorded decision
 (`allowDesktopLocalBuild: true` in the patch configuration); without that decision,
 activation stops before changing the installed app. The original app is backed up.
 Signing validation and operating-system security settings are not disabled.
+macOS Gatekeeper must also admit the prepared app before the installed app is stopped;
+successful headless Electron execution alone is insufficient. The patcher does not
+add Gatekeeper exceptions or remove quarantine attributes.
 
 At activation, the selected Nightly app receives SIGTERM and must exit gracefully;
 Alpha and other applications are excluded. Desktop nodes activate before CLI nodes
@@ -68,6 +75,7 @@ Other commands:
 ~/.local/bin/t3-nightly-patch update
 ~/.local/bin/t3-nightly-patch status
 ~/.local/bin/t3-nightly-patch inspect
+~/.local/bin/t3-nightly-patch repair-desktop-launch
 ```
 
 `apply` prepares a patched runtime without restarting services. `update` prepares
