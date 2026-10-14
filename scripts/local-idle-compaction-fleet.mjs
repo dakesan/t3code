@@ -82,6 +82,37 @@ export async function bootstrapExport(ctx, root) {
   if (!existing) await NodeFSP.symlink(target, command);
 }
 
+export function countActiveWork(db) {
+  const active = "'preparing','queued','starting','running','waiting'";
+  const runs = Number(
+    db
+      .prepare(
+        `SELECT count(*) AS n FROM orchestration_v2_projection_runs WHERE status IN (${active})`,
+      )
+      .get().n,
+  );
+  const requests = Number(
+    db
+      .prepare(
+        "SELECT count(*) AS n FROM orchestration_v2_projection_runtime_requests WHERE status = 'pending'",
+      )
+      .get().n,
+  );
+  // A completed parent can leave a stale app-owned subagent projection. Its
+  // independently running child is still covered by the global run count.
+  const subagents = Number(
+    db
+      .prepare(`SELECT count(*) AS n FROM orchestration_v2_projection_subagents s
+    WHERE s.status IN ('pending',${active}) AND (
+      s.run_id IS NULL OR NOT EXISTS (SELECT 1 FROM orchestration_v2_projection_runs r WHERE r.run_id=s.run_id)
+      OR EXISTS (SELECT 1 FROM orchestration_v2_projection_runs r WHERE r.run_id=s.run_id AND r.status IN (${active}))
+      OR EXISTS (SELECT 1 FROM orchestration_v2_projection_runs r WHERE r.thread_id=s.child_thread_id AND r.status IN (${active}))
+    )`)
+      .get().n,
+  );
+  return runs + requests + subagents;
+}
+
 export async function inspectLocal(ctx) {
   const ps = await ctx.run("ps", ["-axo", "pid=,command="], { capture: true });
   const processes = ps
@@ -134,17 +165,7 @@ export async function inspectLocal(ctx) {
     const { DatabaseSync } = await import("node:sqlite");
     const db = new DatabaseSync(dbFile, { readOnly: true });
     try {
-      for (const [table, statuses] of [
-        ["orchestration_v2_projection_runs", "'preparing','queued','starting','running','waiting'"],
-        ["orchestration_v2_projection_runtime_requests", "'pending'"],
-        [
-          "orchestration_v2_projection_subagents",
-          "'pending','queued','starting','running','waiting'",
-        ],
-      ])
-        busy += Number(
-          db.prepare(`SELECT count(*) AS n FROM ${table} WHERE status IN (${statuses})`).get().n,
-        );
+      busy = countActiveWork(db);
     } finally {
       db.close();
     }
