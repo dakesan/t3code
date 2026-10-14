@@ -1,6 +1,7 @@
 import { ThreadFind, ThreadFindCanvas, type ThreadFindControls } from "./chat/ThreadFindProvider";
 import { THREAD_FIND_BAR_RESERVED_HEIGHT } from "./chat/ThreadFindBar";
 import { usageLimitRecoveryBannerItem } from "./chat/UsageLimitRecoveryBanner";
+import { idleCompactionState, idleCompactionMinutesRemaining } from "@t3tools/contracts";
 import {
   resolveBackgroundDraftWorkspaceOptions,
   resolveDraftHeroState,
@@ -7832,8 +7833,34 @@ export default function ChatView(props: ChatViewProps) {
           },
         })
       : null;
+  const idleCompactState = useMemo(
+    () => (serverProjection ? idleCompactionState(serverProjection) : null),
+    [serverProjection],
+  );
+  const idleCompactMinutes = idleCompactState
+    ? idleCompactionMinutesRemaining(idleCompactState.deadline, Date.parse(`${nowMinute}:00.000Z`))
+    : null;
   const composerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
-    const limitRecoveryItems = limitRecoveryBanner === null ? [] : [limitRecoveryBanner];
+    const idleCompactItems: ComposerBannerStackItem[] =
+      idleCompactMinutes === null
+        ? []
+        : [
+            {
+              id: "idle-auto-compaction",
+              variant: "info",
+              icon: <AlarmClockIcon />,
+              title:
+                idleCompactMinutes > 0
+                  ? `Auto-compact in ${idleCompactMinutes} min. Sending a prompt resets the timer.`
+                  : idleCompactState?.blocked
+                    ? "Auto-compact pending: waiting for current work to finish."
+                    : "Auto-compact is due.",
+            },
+          ];
+    const limitRecoveryItems = [
+      ...idleCompactItems,
+      ...(limitRecoveryBanner === null ? [] : [limitRecoveryBanner]),
+    ];
     const backgroundWorkItems = [
       childInputBannerItem,
       goalBannerItem,
@@ -7901,6 +7928,8 @@ export default function ChatView(props: ChatViewProps) {
     ];
   }, [
     activeBranchMismatchKey,
+    idleCompactMinutes,
+    idleCompactState?.blocked,
     activeThreadShell,
     serverRuntime?.usageLimitResetAt,
     canWriteSourceControl,

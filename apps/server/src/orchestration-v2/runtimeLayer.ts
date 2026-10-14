@@ -51,6 +51,7 @@ import * as ThreadForkService from "./ThreadForkService.ts";
 import * as TurnItemPositionStore from "./TurnItemPositionStore.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
+import * as IdleCompactionWorker from "./IdleCompactionWorker.ts";
 
 /** The shared application event log and its command receipts. */
 export const layerEventInfrastructure = Layer.mergeAll(
@@ -355,6 +356,15 @@ export const layerProduction = Layer.mergeAll(
   layerThreadLaunchProvided,
   layerThreadLifecycleProvided,
   layerScheduledTaskProvided,
+  IdleCompactionWorker.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        ProjectionStore.layer,
+        layerThreadManagementProvided,
+        layerProviderAdapterRegistryProvided,
+      ),
+    ),
+  ),
   layerSecretRequestsProvided,
   UsageLimitRecoveryWorker.layer.pipe(
     Layer.provide(Layer.mergeAll(ProjectionStore.layer, layerThreadManagementProvided)),

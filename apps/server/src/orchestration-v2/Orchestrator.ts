@@ -62,6 +62,7 @@ import {
   type TurnItemId,
 } from "@t3tools/contracts";
 import { modelSelectionsEqual } from "@t3tools/shared/model";
+import { idleCompactionState } from "@t3tools/contracts";
 import {
   derivePendingBackgroundWork,
   pendingBackgroundTurnItems,
@@ -454,6 +455,7 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.pull-request.unlink":
     case "thread.pull-request-link.sync":
     case "thread.pull-request.watch":
+    case "thread.idle-compact":
     case "thread.pull-request-watch.sync":
     case "thread.pull-request.sync":
     case "thread.title.regeneration.complete":
@@ -10710,6 +10712,37 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "provider-session.detach":
         yield* dispatchProviderSessionDetach(command, events, effects);
         break;
+      case "thread.idle-compact": {
+        // Recheck under the command lock: a prompt, approval or run may have
+        // arrived since the scheduler read its candidate snapshot.
+        const projection = yield* getProjectionWithPendingEvents(command.threadId, events);
+        const state = idleCompactionState(projection);
+        const now = DateTime.toEpochMillis(yield* DateTime.now);
+        if (
+          !state ||
+          state.blocked ||
+          state.promptAt !== command.promptAt ||
+          state.deadline > now ||
+          isProviderNativeSubagentThread(projection.thread)
+        )
+          break;
+        yield* dispatchMessage(
+          {
+            type: "message.dispatch",
+            commandId: command.commandId,
+            messageId: MessageId.make(`idle-compact:${command.threadId}:${command.promptAt}`),
+            threadId: command.threadId,
+            createdBy: "system",
+            creationSource: "server",
+            text: "/compact",
+            attachments: [],
+            dispatchMode: { type: "start_immediately" },
+          },
+          events,
+          effects,
+        );
+        break;
+      }
       case "message.dispatch": {
         // The provider owns a native subagent's conversation, so a sent
         // message has nowhere to go. Answers to a subagent's questions never
