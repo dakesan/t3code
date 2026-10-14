@@ -213,7 +213,7 @@ export async function activateLocal(ctx, version) {
   const staged = pending && (await ctx.exists(pending.staging)) ? pending.staging : target;
   const marker = await ctx.json(NodePath.join(staged, ctx.markerName));
   const config = await ctx.settings();
-  if (marker.patchCommit !== config.patchCommit && marker.featureHash !== config.featureHash)
+  if (!(await ctx.samePatch(marker, config)))
     throw new Error("Requested runtime does not contain the current patch");
   const known = new Set(info.managed.map((s) => s.pid));
   // Service children are stopped by the service manager, never by process-name matching.
@@ -254,6 +254,7 @@ export async function activateLocal(ctx, version) {
       [
         NodePath.join(server.root, "run-t3.sh"),
         "serve",
+        "--no-browser",
         "--host",
         "127.0.0.1",
         "--port",

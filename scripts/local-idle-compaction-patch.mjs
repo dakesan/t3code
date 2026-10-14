@@ -316,6 +316,7 @@ async function main() {
     prepare,
     publish,
     settings,
+    samePatch,
     script: NodeURL.fileURLToPath(import.meta.url),
   };
   if (action === "bootstrap") {
