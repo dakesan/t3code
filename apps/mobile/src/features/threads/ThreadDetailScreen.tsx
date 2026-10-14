@@ -8,6 +8,7 @@ import {
   useThreadShell,
 } from "../../state/entities";
 import { UsageLimitRecoveryCard } from "./UsageLimitRecoveryCard";
+import { IdleCompactionNotice } from "./IdleCompactionNotice";
 import { StackActions, useNavigation } from "@react-navigation/native";
 import type { WorktreeSetupCardProps } from "./worktree-setup-card";
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
@@ -1246,6 +1247,10 @@ export const ThreadDetailScreen = function ThreadDetailScreen(props: ThreadDetai
                   }}
                 />
                 <View className="w-full self-center" style={{ maxWidth: contentMaxWidth }}>
+                  <IdleCompactionNotice
+                    environmentId={props.environmentId}
+                    threadId={props.selectedThread.id}
+                  />
                   {props.queuedRunEdit !== null ? (
                     <Animated.View
                       className="shrink-0"
