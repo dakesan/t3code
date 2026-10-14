@@ -11,7 +11,48 @@ import {
   repackDesktop,
   repairStagingPath,
   launchRegistryPaths,
+  guiValidationMetadata,
+  copyDesktopApp,
 } from "./local-idle-compaction-desktop.mjs";
+
+NodeTest.test(
+  "GUI validation preserves Electron helper naming while isolating app identity and URL handling",
+  () => {
+    const original = Object.freeze({
+      CFBundleName: "T3 Code (Nightly)",
+      CFBundleExecutable: "T3 Code (Nightly)",
+      CFBundleIdentifier: "com.t3tools.t3code",
+      CFBundleURLTypes: [{ CFBundleURLSchemes: ["https", "t3code"] }],
+    });
+    const validation = guiValidationMetadata(original);
+    NodeAssert.equal(validation.CFBundleName, original.CFBundleName);
+    NodeAssert.equal(validation.CFBundleExecutable, original.CFBundleExecutable);
+    NodeAssert.notEqual(validation.CFBundleIdentifier, original.CFBundleIdentifier);
+    NodeAssert.equal(validation.CFBundleURLTypes, undefined);
+    NodeAssert.ok(original.CFBundleURLTypes);
+  },
+);
+
+NodeTest.test(
+  "copied frameworks resolve their own relative links after the original app moves",
+  async (context) => {
+    const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-framework-test-"));
+    context.after(() => NodeFSP.rm(root, { recursive: true, force: true }));
+    const source = NodePath.join(root, "source.app");
+    const destination = NodePath.join(root, "copy.app");
+    await NodeFSP.mkdir(NodePath.join(source, "Versions/A"), { recursive: true });
+    await NodeFSP.writeFile(NodePath.join(source, "Versions/A/native"), "framework binary");
+    await NodeFSP.symlink("A", NodePath.join(source, "Versions/Current"));
+    await NodeFSP.symlink("Versions/Current/native", NodePath.join(source, "native"));
+    await copyDesktopApp(source, destination);
+    await NodeFSP.rename(source, source + ".moved");
+    NodeAssert.equal(await NodeFSP.readlink(NodePath.join(destination, "Versions/Current")), "A");
+    NodeAssert.equal(
+      await NodeFSP.readFile(NodePath.join(destination, "native"), "utf8"),
+      "framework binary",
+    );
+  },
+);
 
 NodeTest.test(
   "staged apps remain outside normal indexing without changing the bundle itself",
