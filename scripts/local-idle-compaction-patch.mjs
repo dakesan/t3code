@@ -383,12 +383,18 @@ async function main() {
     ].join(":");
     await NodeFSP.writeFile(
       NodePath.join(unitDir, "t3-fleet-update.service"),
-      `[Unit]\nDescription=Prepare and synchronize patched T3 nightly on all nodes\n[Service]\nType=oneshot\nWorkingDirectory=${unitQuote(repo)}\nEnvironment=${unitQuote("PATH=" + envPath)}\nExecStart=${unitQuote(process.execPath)} ${unitQuote(context.script)} auto-update\nTimeoutStartSec=8h\n`,
+      `[Unit]\nDescription=Prepare and synchronize patched T3 nightly on all nodes\n[Service]\nType=oneshot\nEnvironment=${unitQuote("PATH=" + envPath)}\nExecStart=${unitQuote(process.execPath)} ${unitQuote(context.script)} auto-update\nTimeoutStartSec=8h\n`,
     );
     await NodeFSP.writeFile(
       NodePath.join(unitDir, "t3-fleet-update.timer"),
       "[Unit]\nDescription=Retry the coordinated T3 nightly update every five minutes\n[Timer]\nOnBootSec=2min\nOnUnitInactiveSec=5min\nPersistent=true\n[Install]\nWantedBy=timers.target\n",
     );
+    await run("systemd-analyze", [
+      "--user",
+      "verify",
+      NodePath.join(unitDir, "t3-fleet-update.service"),
+      NodePath.join(unitDir, "t3-fleet-update.timer"),
+    ]);
     await run("systemctl", ["--user", "daemon-reload"]);
     await run("systemctl", ["--user", "enable", "--now", "t3-fleet-update.timer"]);
     console.log(
