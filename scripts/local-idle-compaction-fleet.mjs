@@ -26,7 +26,12 @@ async function endpoint(port) {
     });
     if (!response.ok) return null;
     const data = await response.json();
-    return { port, version: data.serverVersion, environmentId: data.environmentId };
+    return {
+      port,
+      version: data.serverVersion,
+      environmentId: data.environmentId,
+      serviceManaged: data.capabilities?.serverSelfUpdate === "boot-service",
+    };
   } catch {
     return null;
   }
@@ -114,17 +119,21 @@ export async function bootstrapExport(ctx, root) {
 
 export function countActiveWork(db) {
   const active = "'preparing','queued','starting','running','waiting'";
+  const terminal = "'completed','failed','cancelled','interrupted','rolled_back','superseded'";
+  const live = (alias) => `${alias}.status IN (${active}) AND NOT (
+    ${alias}.status='queued' AND EXISTS (SELECT 1 FROM orchestration_v2_projection_runs newer
+      WHERE newer.thread_id=${alias}.thread_id AND newer.ordinal>${alias}.ordinal AND newer.status IN (${terminal})))`;
   const runs = Number(
     db
-      .prepare(
-        `SELECT count(*) AS n FROM orchestration_v2_projection_runs WHERE status IN (${active})`,
-      )
+      .prepare(`SELECT count(*) AS n FROM orchestration_v2_projection_runs r WHERE ${live("r")}`)
       .get().n,
   );
   const requests = Number(
     db
       .prepare(
-        "SELECT count(*) AS n FROM orchestration_v2_projection_runtime_requests WHERE status = 'pending'",
+        `SELECT count(*) AS n FROM orchestration_v2_projection_runtime_requests q
+        WHERE q.status='pending' AND NOT EXISTS (SELECT 1 FROM orchestration_v2_projection_provider_turns p
+          WHERE p.provider_turn_id=q.provider_turn_id AND p.status IN (${terminal}))`,
       )
       .get().n,
   );
@@ -135,8 +144,8 @@ export function countActiveWork(db) {
       .prepare(`SELECT count(*) AS n FROM orchestration_v2_projection_subagents s
     WHERE s.status IN ('pending',${active}) AND (
       s.run_id IS NULL OR NOT EXISTS (SELECT 1 FROM orchestration_v2_projection_runs r WHERE r.run_id=s.run_id)
-      OR EXISTS (SELECT 1 FROM orchestration_v2_projection_runs r WHERE r.run_id=s.run_id AND r.status IN (${active}))
-      OR EXISTS (SELECT 1 FROM orchestration_v2_projection_runs r WHERE r.thread_id=s.child_thread_id AND r.status IN (${active}))
+      OR EXISTS (SELECT 1 FROM orchestration_v2_projection_runs r WHERE r.run_id=s.run_id AND ${live("r")})
+      OR EXISTS (SELECT 1 FROM orchestration_v2_projection_runs r WHERE r.thread_id=s.child_thread_id AND ${live("r")})
     )`)
       .get().n,
   );
@@ -209,11 +218,24 @@ export async function inspectLocal(ctx) {
   const runtime = await ctx
     .json(NodePath.join(ctx.home, "userdata/server-runtime.json"))
     .catch(() => null);
-  const serviceEndpoint =
+  let serviceEndpoint =
     service && runtime?.serviceManaged && processes.some((p) => p.pid === runtime.pid)
       ? await endpoint(runtime.port)
       : null;
-  if (serviceEndpoint && !servers.some((p) => p.pid === runtime.pid))
+  if (service && !serviceEndpoint) {
+    // SSH servers can overwrite the shared runtime descriptor; probe the boot service separately.
+    const config = await ctx.settings();
+    const candidate = await endpoint(config.servicePort ?? 3773);
+    const executable = NodePath.join(ctx.versions, serviceState?.activeVersion ?? "", "t3");
+    if (
+      candidate?.serviceManaged &&
+      servers.some(
+        (p) => p.command.startsWith(executable + " ") && !managed.some((s) => s.pid === p.pid),
+      )
+    )
+      serviceEndpoint = candidate;
+  }
+  if (serviceEndpoint && runtime?.serviceManaged && !servers.some((p) => p.pid === runtime.pid))
     servers.push({ pid: runtime.pid, command: "" });
   return {
     hostname: NodeOS.hostname(),

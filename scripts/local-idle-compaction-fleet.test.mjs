@@ -108,16 +108,16 @@ NodeTest.test(
     const db = new DatabaseSync(":memory:");
     try {
       db.exec(
-        "CREATE TABLE orchestration_v2_projection_runs (run_id TEXT, thread_id TEXT, status TEXT); CREATE TABLE orchestration_v2_projection_runtime_requests (status TEXT); CREATE TABLE orchestration_v2_projection_subagents (run_id TEXT, child_thread_id TEXT, status TEXT)",
+        "CREATE TABLE orchestration_v2_projection_runs (run_id TEXT, thread_id TEXT, status TEXT, ordinal INTEGER DEFAULT 0); CREATE TABLE orchestration_v2_projection_provider_turns (provider_turn_id TEXT, status TEXT); CREATE TABLE orchestration_v2_projection_runtime_requests (status TEXT, provider_turn_id TEXT); CREATE TABLE orchestration_v2_projection_subagents (run_id TEXT, child_thread_id TEXT, status TEXT)",
       );
       db.exec(
-        "INSERT INTO orchestration_v2_projection_runs VALUES ('parent','thread','completed'); INSERT INTO orchestration_v2_projection_subagents VALUES ('parent','child','running')",
+        "INSERT INTO orchestration_v2_projection_runs (run_id,thread_id,status) VALUES ('parent','thread','completed'); INSERT INTO orchestration_v2_projection_subagents VALUES ('parent','child','running')",
       );
       NodeAssert.equal(countActiveWork(db), 0);
       db.exec("UPDATE orchestration_v2_projection_runs SET status='running'");
       NodeAssert.ok(countActiveWork(db) > 0);
       db.exec(
-        "UPDATE orchestration_v2_projection_runs SET status='completed'; INSERT INTO orchestration_v2_projection_runs VALUES ('child-run','child','running')",
+        "UPDATE orchestration_v2_projection_runs SET status='completed'; INSERT INTO orchestration_v2_projection_runs (run_id,thread_id,status) VALUES ('child-run','child','running')",
       );
       NodeAssert.ok(countActiveWork(db) > 0);
       db.exec(
@@ -125,7 +125,7 @@ NodeTest.test(
       );
       NodeAssert.equal(countActiveWork(db), 1);
       db.exec(
-        "DELETE FROM orchestration_v2_projection_subagents; INSERT INTO orchestration_v2_projection_runtime_requests VALUES ('pending')",
+        "DELETE FROM orchestration_v2_projection_subagents; INSERT INTO orchestration_v2_projection_runtime_requests (status) VALUES ('pending')",
       );
       NodeAssert.equal(countActiveWork(db), 1);
     } finally {
@@ -142,6 +142,36 @@ NodeTest.test("remote arguments remain literal shell data", () => {
   NodeAssert.equal(result.status, 0);
   NodeAssert.equal(result.stdout, value);
 });
+
+NodeTest.test(
+  "completed work supersedes old queues and requests, without ignoring a live queue or unknown request",
+  async () => {
+    const { DatabaseSync } = await import("node:sqlite");
+    const db = new DatabaseSync(":memory:");
+    try {
+      db.exec(`CREATE TABLE orchestration_v2_projection_runs (run_id TEXT, thread_id TEXT, ordinal INTEGER, status TEXT);
+      CREATE TABLE orchestration_v2_projection_provider_turns (provider_turn_id TEXT, status TEXT);
+      CREATE TABLE orchestration_v2_projection_runtime_requests (status TEXT, provider_turn_id TEXT);
+      CREATE TABLE orchestration_v2_projection_subagents (run_id TEXT, child_thread_id TEXT, status TEXT);
+      INSERT INTO orchestration_v2_projection_runs VALUES ('old','thread',1,'queued'), ('new','thread',2,'completed');
+      INSERT INTO orchestration_v2_projection_provider_turns VALUES ('turn','completed');
+      INSERT INTO orchestration_v2_projection_runtime_requests VALUES ('pending','turn');`);
+      NodeAssert.equal(countActiveWork(db), 0);
+      db.exec("INSERT INTO orchestration_v2_projection_runs VALUES ('future','thread',3,'queued')");
+      NodeAssert.equal(countActiveWork(db), 1);
+      db.exec(
+        "UPDATE orchestration_v2_projection_runs SET status='completed'; INSERT INTO orchestration_v2_projection_runtime_requests VALUES ('pending','unknown')",
+      );
+      NodeAssert.equal(countActiveWork(db), 1);
+      db.exec(
+        "DELETE FROM orchestration_v2_projection_runtime_requests; UPDATE orchestration_v2_projection_runs SET status='running' WHERE run_id='old'",
+      );
+      NodeAssert.equal(countActiveWork(db), 1);
+    } finally {
+      db.close();
+    }
+  },
+);
 
 NodeTest.test("an offline node prevents every build and activation", async () => {
   const events = [];
