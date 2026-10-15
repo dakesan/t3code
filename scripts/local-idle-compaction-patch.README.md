@@ -10,19 +10,9 @@ The command resolves the latest published nightly once, then uses that exact
 version on `logomix`, `macmini`, `myhome`, and `macbook`. SSH aliases must be
 configured on the machine running the command.
 
-For automatic updates, install the coordinator on Logomix:
-
-```sh
-~/.local/bin/t3-nightly-patch install-auto
-systemctl --user start --no-block t3-fleet-update.service
-```
-
-The user timer retries five minutes after each attempt finishes. A busy fleet
-keeps its selected version for the next attempt. A failed build checks for a
-newer published nightly on the next attempt. Progress is recorded in
-`~/.local/share/t3-nightly-patch/fleet-auto.json` and `fleet-last.json`.
-Disable the older MacBook `bio.logomix.t3-version-sync` LaunchAgent before enabling
-this timer. Only one coordinator should manage the fleet.
+Routine updates are initiated from the MacBook update controls. Scheduled updates
+are disabled; do not enable the former `t3-fleet-update.timer` or the older MacBook
+`bio.logomix.t3-version-sync` LaunchAgent. See Manual fleet updates from MacBook below.
 
 Every node must be reachable before any build or restart begins. Each node
 receives the source patch and installer, builds for its own operating system and
@@ -144,3 +134,23 @@ saved in `~/.local/share/t3-nightly-patch/fleet-last.json`. The patch source is
 captured from the committed feature branch during `install`; after changing the
 patch, commit it and run `t3-nightly-patch install` again. Future incompatible
 nightlies require adapting the source patch rather than forcing it to apply.
+
+## Manual fleet updates from MacBook
+
+Scheduled deployment is disabled. `auto-update` and `install-auto` refuse to run.
+The Logomix `t3-fleet-update.timer` must remain disabled.
+The fleet-managed MacBook distribution keeps the official updater disabled and
+connects the existing update controls to the patched fleet coordinator instead.
+Checking for updates only reads the Nightly release list. Download/install and the
+application menu ask for explicit confirmation before preparing and deploying the
+selected version to all four computers. The dialog states that this action also
+restarts T3; it is not a download-only action.
+
+A confirmed request starts `t3-manual-update.service` on Logomix using systemd-run.
+The worker survives the MacBook app restart. All existing reachability, active-work,
+signature, GUI validation and rollback checks apply. A blocked or failed request
+is reported and never retried on a schedule. The user must request it again.
+Result: `~/.local/share/t3-nightly-patch/manual-last.json`; service output:
+`journalctl --user -u t3-manual-update.service`.
+The only Desktop timer observes an explicitly launched request; it never checks
+for a release or starts a deployment. Validation copies disable this bridge.

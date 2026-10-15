@@ -162,7 +162,7 @@ NodeTest.test(
     );
     NodeAssert.equal(
       asar.extractFile(archive, "fleet-managed.cjs").toString(),
-      'process.env.T3CODE_DISABLE_AUTO_UPDATE = "1";\nrequire("./apps/desktop/main.cjs");\n',
+      'process.env.T3CODE_DISABLE_AUTO_UPDATE = "1";\nif (!process.env.T3_PATCH_GUI_VALIDATION) require("./fleet-manual.cjs").install(require("electron"));\nrequire("./apps/desktop/main.cjs");\n',
     );
     NodeAssert.equal(
       asar.extractFile(archive, "apps/desktop/main.cjs").toString(),

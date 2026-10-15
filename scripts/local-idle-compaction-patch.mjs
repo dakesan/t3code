@@ -359,77 +359,27 @@ async function main() {
     });
     return;
   }
-  if (action === "auto-update") {
-    const autoFile = NodePath.join(state, "fleet-auto.json");
-    const auto = await json(autoFile).catch(() => ({}));
-    await withLock(async () => {
-      const target =
-        auto.status === "failed" || !auto.targetVersion
-          ? (await latestRelease()).tag_name.slice(1)
-          : auto.targetVersion;
-      if (!versionPattern.test(target)) throw new Error("Invalid queued nightly version");
-      await writeJson(autoFile, {
-        ...auto,
-        targetVersion: target,
-        attemptedAt: new Date().toISOString(),
-        status: "running",
-      });
-      try {
-        await runFleet(context, target);
-        await writeJson(autoFile, {
-          targetVersion: null,
-          completedVersion: target,
-          completedAt: new Date().toISOString(),
-          status: "completed",
-        });
-      } catch (error) {
-        await writeJson(autoFile, {
-          ...auto,
-          targetVersion: target,
-          attemptedAt: new Date().toISOString(),
-          status: /Active agent work/.test(String(error)) ? "deferred" : "failed",
-          error: String(error),
-        });
-        throw error;
-      }
-    }, "fleet-lock");
+  if (action === "manual-update") {
+    if (!versionPattern.test(version)) throw new Error("Expected an exact Nightly version");
+    const requestId = args.find((arg) => arg.startsWith("--request="))?.slice(10) ?? null;
+    const file = NodePath.join(state, "manual-last.json");
+    try {
+      await withLock(async () => {
+        await writeJson(file, { version, requestId, startedAt: new Date().toISOString() });
+        await runFleet(context, version);
+        await writeJson(file, { version, requestId, completedAt: new Date().toISOString() });
+      }, "fleet-lock");
+    } catch (error) {
+      await writeJson(file, { version, requestId, error: String(error) });
+      throw error;
+    }
     return;
   }
+  if (action === "auto-update") {
+    throw new Error("Scheduled fleet updates are disabled; request an update from MacBook");
+  }
   if (action === "install-auto") {
-    if (NodeOS.platform() !== "linux")
-      throw new Error("Install the fleet coordinator on a Linux node");
-    const unitDir = NodePath.join(NodeOS.homedir(), ".config/systemd/user");
-    await NodeFSP.mkdir(unitDir, { recursive: true });
-    const unitQuote = (s) =>
-      '"' + String(s).replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("%", "%%") + '"';
-    const envPath = [
-      NodePath.dirname(process.execPath),
-      NodePath.join(NodeOS.homedir(), ".local/bin"),
-      NodePath.join(NodeOS.homedir(), ".local/share/mise/shims"),
-      "/usr/local/bin",
-      "/usr/bin",
-      "/bin",
-    ].join(":");
-    await NodeFSP.writeFile(
-      NodePath.join(unitDir, "t3-fleet-update.service"),
-      `[Unit]\nDescription=Prepare and synchronize patched T3 nightly on all nodes\n[Service]\nType=oneshot\nEnvironment=${unitQuote("PATH=" + envPath)}\nExecStart=${unitQuote(process.execPath)} ${unitQuote(context.script)} auto-update\nTimeoutStartSec=8h\n`,
-    );
-    await NodeFSP.writeFile(
-      NodePath.join(unitDir, "t3-fleet-update.timer"),
-      "[Unit]\nDescription=Retry the coordinated T3 nightly update every five minutes\n[Timer]\nOnBootSec=2min\nOnUnitInactiveSec=5min\nPersistent=true\n[Install]\nWantedBy=timers.target\n",
-    );
-    await run("systemd-analyze", [
-      "--user",
-      "verify",
-      NodePath.join(unitDir, "t3-fleet-update.service"),
-      NodePath.join(unitDir, "t3-fleet-update.timer"),
-    ]);
-    await run("systemctl", ["--user", "daemon-reload"]);
-    await run("systemctl", ["--user", "enable", "--now", "t3-fleet-update.timer"]);
-    console.log(
-      "Fleet update timer enabled; run systemctl --user start --no-block t3-fleet-update.service to update now.",
-    );
-    return;
+    throw new Error("Scheduled fleet updates are disabled; use MacBook manual updates");
   }
   if (action === "export") {
     console.log(await exportPatch(context));

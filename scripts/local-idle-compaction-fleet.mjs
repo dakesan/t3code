@@ -77,6 +77,7 @@ export async function exportPatch(ctx) {
     "local-idle-compaction-fleet.mjs",
     "local-idle-compaction-desktop.mjs",
     "local-idle-compaction-signing.mjs",
+    "local-idle-compaction-manual.cjs",
   ])
     await NodeFSP.copyFile(
       NodePath.join(NodePath.dirname(ctx.script), name),
@@ -730,6 +731,7 @@ export async function runFleet(ctx, version) {
           "local-idle-compaction-fleet.mjs",
           "local-idle-compaction-desktop.mjs",
           "local-idle-compaction-signing.mjs",
+          "local-idle-compaction-manual.cjs",
         ].map((name) => NodePath.join(payload, name)),
         `${node}:${root}/`,
       ]);
