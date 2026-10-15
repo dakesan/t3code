@@ -531,7 +531,8 @@ export async function prepareDesktop(ctx, version) {
 
 export async function activateDesktop(ctx, version, info, inspect) {
   const desktop = info.desktop;
-  if (info.busy) throw new Error(`Active agent work (${info.busy}); Desktop restart deferred`);
+  if (info.busy && !ctx.allowActive)
+    throw new Error(`Active agent work (${info.busy}); Desktop restart deferred`);
   if (info.service || info.managed.length)
     throw new Error("Desktop and CLI launchers share a node; refusing an ambiguous restart");
   const config = await ctx.settings();
@@ -557,7 +558,7 @@ export async function activateDesktop(ctx, version, info, inspect) {
   )
     throw new Error("Prepared Desktop app was modified after verification");
   const fresh = await inspect();
-  if (fresh.busy || fresh.desktop?.version !== desktop.version)
+  if ((fresh.busy && !ctx.allowActive) || fresh.desktop?.version !== desktop.version)
     throw new Error("Desktop state changed; retry after active work finishes");
   const backup = NodePath.join(
     ctx.state,

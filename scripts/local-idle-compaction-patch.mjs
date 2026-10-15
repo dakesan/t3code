@@ -305,6 +305,7 @@ async function main() {
   if (action !== "install" && action !== "bootstrap" && (await exists(configFile)))
     repo = (await json(configFile)).repo ?? repo;
   const context = {
+    allowActive: args.includes("--allow-active"),
     repo,
     base,
     state,
