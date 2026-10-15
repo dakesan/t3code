@@ -37,6 +37,17 @@ export async function unlockSigningIdentity(identity) {
   if ((info.mode & 0o077) !== 0) throw new Error("Signing password file must be private");
   const password = (await NodeFSP.readFile(identity.passwordFile, "utf8")).trim();
   await exec("/usr/bin/security", ["unlock-keychain", "-p", password, identity.keychain]);
+  const search = await exec("/usr/bin/security", ["list-keychains", "-d", "user"]);
+  const keychains = [...search.stdout.matchAll(/"([^"\n]+)"/g)].map((match) => match[1]);
+  if (!keychains.includes(identity.keychain))
+    await exec("/usr/bin/security", [
+      "list-keychains",
+      "-d",
+      "user",
+      "-s",
+      ...keychains,
+      identity.keychain,
+    ]);
 }
 
 export async function setupSigningIdentity(state) {
@@ -163,6 +174,7 @@ export async function setupSigningIdentity(state) {
       `Approve this certificate once in the MacBook Terminal: security add-trusted-cert -r trustRoot -p codeSign -k '${keychain}' '${cert}'`,
     );
   const record = { identity, keychain, passwordFile, createdAt: new Date().toISOString() };
+  await unlockSigningIdentity(record);
   const requirements = [];
   for (const name of ["true", "false"]) {
     const probe = NodePath.join(root, `identity-probe-${name}`);
