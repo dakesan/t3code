@@ -1,12 +1,105 @@
 import * as NodeAssert from "node:assert/strict";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeTest from "node:test";
+import * as NodeHttp from "node:http";
 import {
   assertReady,
   fleetTransaction,
   quote,
   countActiveWork,
+  activationVerified,
+  activateLocal,
 } from "./local-idle-compaction-fleet.mjs";
+
+NodeTest.test("an already current live service is not restarted", async (t) => {
+  const version = "0.0.46-nightly.20261014.3118";
+  const server = NodeHttp.createServer((request, response) => {
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({ serverVersion: version, environmentId: "fixture" }));
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(
+    () =>
+      new Promise((resolve) => {
+        server.close(resolve);
+        server.closeAllConnections();
+      }),
+  );
+  const commands = [];
+  const ctx = {
+    home: "/fixture",
+    state: "/fixture/state",
+    versions: "/fixture/runtime/versions",
+    markerName: "marker.json",
+    settings: async () => ({}),
+    samePatch: async () => true,
+    exists: async (path) => path.endsWith("service.plist") || path.endsWith("t3code.service"),
+    json: async (path) => {
+      if (path.endsWith("service-state.json")) return { activeVersion: version };
+      if (path.endsWith("server-runtime.json"))
+        return { pid: process.pid, port: server.address().port, serviceManaged: true };
+      if (path.endsWith("marker.json")) return {};
+      throw new Error("Fixture path not found");
+    },
+    run: async (command) => {
+      commands.push(command);
+      if (command === "ps") return `${process.pid} /fixture/runtime/versions/${version}/t3 serve`;
+      throw new Error("A current service must not run a mutation command");
+    },
+  };
+  const result = await activateLocal(ctx, version);
+  NodeAssert.equal(result.serviceEndpoint.version, version);
+  NodeAssert.deepEqual(commands, ["ps"]);
+});
+
+NodeTest.test(
+  "service readiness requires the live descriptor, regardless of process counts",
+  () => {
+    const before = { service: true, managed: [], serverPids: [1, 2] };
+    NodeAssert.equal(
+      activationVerified({ serviceVersion: "new", managed: [], serverPids: [] }, before, "new"),
+      false,
+    );
+    NodeAssert.equal(
+      activationVerified(
+        {
+          serviceVersion: "new",
+          serviceEndpoint: { version: "old" },
+          managed: [],
+          serverPids: [3, 4],
+        },
+        before,
+        "new",
+      ),
+      false,
+    );
+    NodeAssert.equal(
+      activationVerified(
+        {
+          serviceVersion: "new",
+          serviceEndpoint: { version: "new" },
+          managed: [],
+          serverPids: [3],
+        },
+        before,
+        "new",
+      ),
+      true,
+    );
+  },
+);
+
+NodeTest.test("every managed SSH port must report the selected version", () => {
+  const before = { service: false, managed: [{ root: "r", port: 3774 }] };
+  const after = {
+    managed: [{ root: "r", port: 3774, version: "new", endpoint: { version: "old" } }],
+  };
+  NodeAssert.equal(activationVerified(after, before, "new"), false);
+  after.managed[0].endpoint.version = "new";
+  NodeAssert.equal(activationVerified(after, before, "new"), true);
+  after.managed[0].port = 3775;
+  NodeAssert.equal(activationVerified(after, before, "new"), false);
+});
 
 NodeTest.test(
   "stale subagent projections cannot permanently block restarts, while live and unknown work does",
@@ -136,6 +229,58 @@ NodeTest.test("all builds finish before any server is restarted", async () => {
     },
   );
   NodeAssert.deepEqual(events, ["build a", "build b", "restart a", "restart b"]);
+});
+
+NodeTest.test("a later activation failure restores earlier nodes in reverse order", async () => {
+  const events = [];
+  await NodeAssert.rejects(
+    fleetTransaction(
+      ["a", "b", "c"],
+      async () => {},
+      async () => {},
+      async (node) => {
+        events.push(`activate ${node}`);
+        if (node === "c") throw new Error("startup failed");
+      },
+      () => ["a", "b", "c"],
+      async (node) => events.push(`restore ${node}`),
+    ),
+    /startup failed/,
+  );
+  NodeAssert.deepEqual(events, [
+    "activate a",
+    "activate b",
+    "activate c",
+    "restore c",
+    "restore b",
+    "restore a",
+  ]);
+});
+
+NodeTest.test("rollback continues after a restore fails and reports both errors", async () => {
+  const restored = [];
+  await NodeAssert.rejects(
+    fleetTransaction(
+      ["a", "b", "c"],
+      async () => {},
+      async () => {},
+      async (node) => {
+        if (node === "c") throw new Error("startup failed");
+      },
+      () => ["a", "b", "c"],
+      async (node) => {
+        restored.push(node);
+        if (node === "b") throw new Error("restore offline");
+      },
+    ),
+    (error) => {
+      NodeAssert.ok(error instanceof AggregateError);
+      NodeAssert.match(error.message, /startup failed/);
+      NodeAssert.match(error.message, /restore offline/);
+      return true;
+    },
+  );
+  NodeAssert.deepEqual(restored, ["c", "b", "a"]);
 });
 
 NodeTest.test(

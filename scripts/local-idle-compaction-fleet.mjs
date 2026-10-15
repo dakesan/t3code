@@ -19,6 +19,36 @@ const alive = (pid) => {
 };
 const versionPattern = /^0\.0\.\d+-nightly\.\d{8}\.\d+$/;
 
+async function endpoint(port) {
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/.well-known/t3/environment`, {
+      signal: AbortSignal.timeout(2000),
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    return { port, version: data.serverVersion, environmentId: data.environmentId };
+  } catch {
+    return null;
+  }
+}
+
+export function activationVerified(after, before, version) {
+  return (
+    (!before.service ||
+      (after.serviceVersion === version && after.serviceEndpoint?.version === version)) &&
+    before.managed.every((original) =>
+      after.managed.some(
+        (s) =>
+          s.root === original.root &&
+          s.port === original.port &&
+          s.version === version &&
+          s.endpoint?.version === version,
+      ),
+    ) &&
+    after.managed.length === before.managed.length
+  );
+}
+
 export async function exportPatch(ctx) {
   const config = await ctx.settings();
   const patch = config.patchFile
@@ -157,7 +187,7 @@ export async function inspectLocal(ctx) {
       port > 65535
     )
       throw new Error(`Unrecognized SSH-managed process: ${root}`);
-    managed.push({ root, pid, port, version: match[2] });
+    managed.push({ root, pid, port, version: match[2], endpoint: await endpoint(port) });
   }
   let busy = 0;
   const dbFile = NodePath.join(ctx.home, "userdata/statev2.sqlite");
@@ -176,6 +206,15 @@ export async function inspectLocal(ctx) {
   const serviceState = await ctx
     .json(NodePath.join(ctx.home, "runtime/service-state.json"))
     .catch(() => null);
+  const runtime = await ctx
+    .json(NodePath.join(ctx.home, "userdata/server-runtime.json"))
+    .catch(() => null);
+  const serviceEndpoint =
+    service && runtime?.serviceManaged && processes.some((p) => p.pid === runtime.pid)
+      ? await endpoint(runtime.port)
+      : null;
+  if (serviceEndpoint && !servers.some((p) => p.pid === runtime.pid))
+    servers.push({ pid: runtime.pid, command: "" });
   return {
     hostname: NodeOS.hostname(),
     platform: NodeOS.platform(),
@@ -183,11 +222,19 @@ export async function inspectLocal(ctx) {
     home: NodeOS.homedir(),
     service,
     serviceVersion: serviceState?.activeVersion ?? null,
+    serviceEndpoint,
     managed,
     desktop,
     busy,
     serverPids: servers.map((p) => p.pid),
-    serverVersions: servers.map((p) => p.command.slice(ctx.versions.length + 1).split("/")[0]),
+    serverVersions: [
+      ...new Set([
+        ...servers
+          .filter((p) => p.command)
+          .map((p) => p.command.slice(ctx.versions.length + 1).split("/")[0]),
+        ...(serviceEndpoint ? [serviceEndpoint.version] : []),
+      ]),
+    ],
   };
 }
 
@@ -206,6 +253,12 @@ export async function activateLocal(ctx, version) {
   const info = await inspectLocal(ctx);
   assertReady(info);
   if (info.desktop) return activateDesktop(ctx, version, info, () => inspectLocal(ctx));
+  if (
+    info.service &&
+    (!versionPattern.test(info.serviceVersion ?? "") ||
+      info.serviceEndpoint?.version !== info.serviceVersion)
+  )
+    throw new Error("The running service must match its configured version before activation");
   const pending = await ctx
     .json(NodePath.join(ctx.state, `pending-${version}.json`))
     .catch(() => null);
@@ -215,6 +268,10 @@ export async function activateLocal(ctx, version) {
   const config = await ctx.settings();
   if (!(await ctx.samePatch(marker, config)))
     throw new Error("Requested runtime does not contain the current patch");
+  if (staged === target && activationVerified(info, info, version)) {
+    console.log(`${NodeOS.hostname()}: ${version} patch already active`);
+    return info;
+  }
   const known = new Set(info.managed.map((s) => s.pid));
   // Service children are stopped by the service manager, never by process-name matching.
   if (!info.service && info.serverPids.some((pid) => !known.has(pid)))
@@ -293,7 +350,7 @@ export async function activateLocal(ctx, version) {
     if (info.serverPids.some(alive))
       throw new Error("A server did not stop gracefully; no runtime was replaced");
     if (staged !== target) {
-      await ctx.publish(version, staged, config.patchCommit);
+      await ctx.publish(version, staged, config.patchCommit, ctx.transaction);
       if (await ctx.exists(staged))
         throw new Error("The runtime was started concurrently; activation remains pending");
       published = true;
@@ -308,11 +365,11 @@ export async function activateLocal(ctx, version) {
     let after;
     for (let attempt = 0; attempt < 60; attempt++) {
       after = await inspectLocal(ctx);
-      if (after.serverPids.length >= info.serverPids.length) break;
+      if (activationVerified(after, info, version)) break;
       await sleep(500);
     }
-    if (after.serverPids.length < info.serverPids.length)
-      throw new Error("Not all T3 server processes restarted");
+    if (!activationVerified(after, info, version))
+      throw new Error("Not all T3 endpoints reached the requested version");
     if (after.serverVersions.some((running) => running !== version))
       throw new Error("A T3 server is still running another version");
     if (info.service && after.serviceVersion !== version)
@@ -353,12 +410,193 @@ export async function activateLocal(ctx, version) {
   }
 }
 
+function snapshotFile(ctx, transaction) {
+  if (!/^[a-zA-Z0-9-]+$/.test(transaction ?? "")) throw new Error("Invalid fleet transaction ID");
+  return NodePath.join(ctx.state, `fleet-snapshot-${transaction}.json`);
+}
+
+export async function snapshotFleetNode(ctx, transaction) {
+  const file = snapshotFile(ctx, transaction);
+  if (await ctx.exists(file)) throw new Error("Fleet snapshot already exists");
+  const info = await inspectLocal(ctx);
+  assertReady(info);
+  if (
+    info.service &&
+    (!versionPattern.test(info.serviceVersion ?? "") ||
+      info.serviceEndpoint?.version !== info.serviceVersion)
+  )
+    throw new Error("Cannot snapshot a service without a matching live version");
+  const snapshot = {
+    info,
+    createdAt: new Date().toISOString(),
+    managed: await Promise.all(
+      info.managed.map(async (s) => ({
+        ...s,
+        runner: await NodeFSP.readFile(NodePath.join(s.root, "run-t3.sh"), "utf8"),
+      })),
+    ),
+  };
+  await NodeFSP.writeFile(file, JSON.stringify(snapshot, null, 2) + "\n", {
+    mode: 0o600,
+    flag: "wx",
+  });
+}
+
+export async function rollbackFleetNode(ctx, transaction) {
+  const file = snapshotFile(ctx, transaction);
+  const snapshot = await ctx.json(file);
+  if (snapshot.restoredAt) return;
+  const current = await inspectLocal(ctx);
+  assertReady(current);
+  const lastRuntime = await ctx
+    .json(NodePath.join(ctx.state, "last-success.json"))
+    .catch(() => null);
+  const lastDesktop = await ctx
+    .json(NodePath.join(ctx.state, "desktop-last-success.json"))
+    .catch(() => null);
+  if (
+    !snapshot.info.desktop &&
+    lastRuntime?.backup &&
+    lastRuntime.completedAt >= snapshot.createdAt &&
+    lastRuntime.transaction !== transaction
+  )
+    throw new Error("Runtime backup belongs to a different update");
+  if (
+    current.serviceVersion === snapshot.info.serviceVersion &&
+    (!current.service || current.serviceEndpoint?.version === snapshot.info.serviceVersion) &&
+    current.managed.length === snapshot.managed.length &&
+    snapshot.managed.every((s) =>
+      current.managed.some(
+        (a) => a.root === s.root && a.version === s.version && a.endpoint?.version === s.version,
+      ),
+    ) &&
+    (!current.desktop || current.desktop.version === snapshot.info.desktop?.version) &&
+    (!lastRuntime || lastRuntime.completedAt < snapshot.createdAt) &&
+    (!lastDesktop || lastDesktop.completedAt < snapshot.createdAt)
+  )
+    return;
+  if (snapshot.info.desktop) {
+    const last = await ctx.json(NodePath.join(ctx.state, "desktop-last-success.json"));
+    if (!last.backup || last.completedAt < snapshot.createdAt) return; // An activation that was already current did not replace the app.
+    if (last.transaction !== transaction)
+      throw new Error("Desktop backup belongs to a different update");
+    const appPath = snapshot.info.desktop.appPath;
+    if (current.desktop?.appPath !== appPath)
+      throw new Error("Desktop installation changed during rollback");
+    for (const pid of current.desktop.mainPids) if (alive(pid)) process.kill(pid, "SIGTERM");
+    for (let n = 0; n < 120 && current.desktop.pids.some(alive); n++) await sleep(500);
+    if (current.desktop.pids.some(alive))
+      throw new Error("Desktop rollback waits for graceful shutdown");
+    const displaced = `${last.backup}.fleet-failed-${Date.now()}`;
+    await NodeFSP.rename(appPath, displaced);
+    try {
+      await NodeFSP.rename(last.backup, appPath);
+    } catch (error) {
+      await NodeFSP.rename(displaced, appPath);
+      throw error;
+    }
+    if (snapshot.info.desktop.mainPids.length) await ctx.run("open", ["-a", appPath]);
+    for (let n = 0; n < 120; n++) {
+      const after = await inspectLocal(ctx);
+      const runtime = await ctx
+        .json(NodePath.join(ctx.home, "userdata/server-runtime.json"))
+        .catch(() => null);
+      const live = runtime && (await endpoint(runtime.port));
+      if (
+        after.desktop?.version === snapshot.info.desktop.version &&
+        (!snapshot.info.desktop.mainPids.length ||
+          (after.desktop.backendPids.includes(runtime?.pid) &&
+            live?.version === snapshot.info.desktop.version))
+      ) {
+        snapshot.restoredAt = new Date().toISOString();
+        await ctx.writeJson(file, snapshot);
+        return;
+      }
+      await sleep(500);
+    }
+    throw new Error("Restored Desktop backend did not become ready");
+  }
+  // Stop only supported service managers and the recorded managed launchers.
+  if (current.service) {
+    if (NodeOS.platform() === "darwin")
+      await ctx.run("launchctl", [
+        "bootout",
+        `gui/${process.getuid()}`,
+        NodePath.join(NodeOS.homedir(), "Library/LaunchAgents/com.t3tools.t3code.service.plist"),
+      ]);
+    else await ctx.run("systemctl", ["--user", "stop", "t3code.service"]);
+  }
+  for (const server of current.managed) if (alive(server.pid)) process.kill(server.pid, "SIGTERM");
+  for (let n = 0; n < 120 && current.serverPids.some(alive); n++) await sleep(500);
+  if (current.serverPids.some(alive)) throw new Error("CLI rollback waits for graceful shutdown");
+  const last = await ctx.json(NodePath.join(ctx.state, "last-success.json")).catch(() => null);
+  if (last?.backup && last.completedAt >= snapshot.createdAt && (await ctx.exists(last.backup))) {
+    if (last.transaction !== transaction)
+      throw new Error("Runtime backup belongs to a different update");
+    const target = NodePath.join(ctx.versions, last.version);
+    await NodeFSP.rename(target, `${target}.fleet-failed-${Date.now()}`);
+    await NodeFSP.rename(last.backup, target);
+  }
+  if (snapshot.info.service)
+    await ctx.run(NodePath.join(ctx.versions, snapshot.info.serviceVersion, "t3"), [
+      "service",
+      "install",
+      "--base-dir",
+      ctx.home,
+      "--allow-downgrade",
+    ]);
+  for (const server of snapshot.managed) {
+    await NodeFSP.writeFile(NodePath.join(server.root, "run-t3.sh"), server.runner);
+    const log = await NodeFSP.open(NodePath.join(server.root, "server.log"), "a");
+    const child = NodeChildProcess.spawn(
+      "sh",
+      [
+        NodePath.join(server.root, "run-t3.sh"),
+        "serve",
+        "--no-browser",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        String(server.port),
+        "--base-dir",
+        ctx.home,
+      ],
+      { detached: true, stdio: ["ignore", log.fd, log.fd], cwd: NodeOS.homedir() },
+    );
+    await new Promise((resolve, reject) => {
+      child.once("spawn", resolve);
+      child.once("error", reject);
+    });
+    child.unref();
+    await log.close();
+    await NodeFSP.writeFile(NodePath.join(server.root, "pid"), String(child.pid) + "\n");
+  }
+  for (let n = 0; n < 120; n++) {
+    const after = await inspectLocal(ctx);
+    if (
+      (!snapshot.info.service || after.serviceEndpoint?.version === snapshot.info.serviceVersion) &&
+      snapshot.managed.every((s) =>
+        after.managed.some(
+          (a) => a.root === s.root && a.port === s.port && a.endpoint?.version === s.version,
+        ),
+      )
+    ) {
+      snapshot.restoredAt = new Date().toISOString();
+      await ctx.writeJson(file, snapshot);
+      return;
+    }
+    await sleep(500);
+  }
+  throw new Error("Restored CLI endpoints did not become ready");
+}
+
 export async function fleetTransaction(
   nodes,
   prepare,
   preflight,
   activate,
   activationOrder = () => nodes,
+  rollback,
 ) {
   // Every node must be reachable before builds or service changes begin.
   const checkAll = async () => {
@@ -371,7 +609,26 @@ export async function fleetTransaction(
   await checkAll();
   for (const node of nodes) await prepare(node);
   await checkAll();
-  for (const node of activationOrder()) await activate(node);
+  const activated = [];
+  try {
+    for (const node of activationOrder()) {
+      activated.push(node);
+      await activate(node);
+    }
+  } catch (error) {
+    const failures = [error];
+    if (rollback)
+      for (const node of activated.toReversed()) {
+        try {
+          await rollback(node);
+        } catch (failure) {
+          failures.push(new Error(`${node}: ${failure}`, { cause: failure }));
+        }
+      }
+    if (failures.length > 1)
+      throw new AggregateError(failures, failures.map(String).join("\n"), { cause: error });
+    throw error;
+  }
 }
 
 export async function runFleet(ctx, version) {
@@ -403,7 +660,9 @@ export async function runFleet(ctx, version) {
     'export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$HOME/.mise/shims:/opt/homebrew/bin:/usr/local/bin:$PATH"; ';
   const unlock =
     'if [ "$(uname -s)" = Darwin ]; then security unlock-keychain "$HOME/Library/Keychains/login.keychain-db" || exit; fi; ';
-  const report = { version, startedAt: new Date().toISOString(), nodes: {} };
+  const previous = await ctx.json(NodePath.join(ctx.state, "fleet-last.json")).catch(() => null);
+  const transaction = `fleet-${Date.now()}-${process.pid}`;
+  const report = { transaction, version, startedAt: new Date().toISOString(), nodes: {} };
   const reportFile = NodePath.join(ctx.state, "fleet-last.json");
   const remote = (node, command, capture = false) =>
     ctx.run("ssh", [...sshArgs, node, envSetup + command], { capture });
@@ -455,18 +714,49 @@ export async function runFleet(ctx, version) {
           `node ${quote(root + "/local-idle-compaction-patch.mjs")} bootstrap ${quote(root)}`,
       );
     }
-    const call = async (node, action, capture = false) => {
+    const call = async (node, action, capture = false, id = transaction) => {
       const script =
         node === localNode ? ctx.script : info.get(node).root + "/local-idle-compaction-patch.mjs";
-      const args = [script, action, version];
+      const args = [
+        script,
+        action,
+        ["snapshot-fleet", "rollback-fleet"].includes(action) ? id : version,
+        ...(action === "activate-fleet" ? [`--transaction=${id}`] : []),
+      ];
       return node === localNode
         ? ctx.run(process.execPath, args, { capture })
         : remote(node, unlock + ["node", ...args].map(quote).join(" "), capture);
     };
+    if (previous?.transaction && !previous.completedAt) {
+      for (const node of Object.keys(previous.nodes).toReversed()) {
+        if (!["activating", "active", "restore-failed"].includes(previous.nodes[node].status))
+          continue;
+        try {
+          await call(node, "rollback-fleet", false, previous.transaction);
+          previous.nodes[node].status = "restored";
+        } catch (error) {
+          previous.nodes[node].status = "restore-failed";
+          previous.nodes[node].error = String(error);
+          Object.assign(report, {
+            transaction: previous.transaction,
+            version: previous.version,
+            nodes: previous.nodes,
+          });
+          throw error;
+        } finally {
+          await ctx.writeJson(
+            NodePath.join(ctx.state, `fleet-recovery-${previous.transaction}.json`),
+            previous,
+          );
+        }
+      }
+    }
+    let prepared = 0;
     await fleetTransaction(
       nodes,
       async (node) => {
         await call(node, "apply");
+        prepared++;
         report.nodes[node] = { status: "prepared" };
         await ctx.writeJson(reportFile, report);
       },
@@ -474,14 +764,18 @@ export async function runFleet(ctx, version) {
         try {
           const inspection = JSON.parse((await call(node, "inspect", true)).split("\n").at(-1));
           report.nodes[node] = { ...report.nodes[node], inspection };
-          assertReady(inspection);
+          // Builds are safe while agents work; activation waits until every node is idle.
+          assertReady(prepared === nodes.length ? inspection : { ...inspection, busy: 0 });
+          if (prepared === nodes.length) await call(node, "snapshot-fleet");
         } catch (error) {
           report.nodes[node] = { ...report.nodes[node], status: "blocked", error: String(error) };
           throw error;
         }
       },
       async (node) => {
-        await call(node, "activate");
+        report.nodes[node] = { ...report.nodes[node], status: "activating" };
+        await ctx.writeJson(reportFile, report);
+        await call(node, "activate-fleet");
         report.nodes[node] = { status: "active" };
         await ctx.writeJson(reportFile, report);
       },
@@ -491,6 +785,21 @@ export async function runFleet(ctx, version) {
             Number(Boolean(report.nodes[b].inspection?.desktop)) -
             Number(Boolean(report.nodes[a].inspection?.desktop)),
         ),
+      async (node) => {
+        try {
+          await call(node, "rollback-fleet");
+          report.nodes[node] = { ...report.nodes[node], status: "restored" };
+        } catch (error) {
+          report.nodes[node] = {
+            ...report.nodes[node],
+            status: "restore-failed",
+            error: String(error),
+          };
+          throw error;
+        } finally {
+          await ctx.writeJson(reportFile, report);
+        }
+      },
     );
     report.completedAt = new Date().toISOString();
   } catch (error) {

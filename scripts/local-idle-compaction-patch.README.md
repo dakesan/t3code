@@ -8,7 +8,21 @@ Run this command on Logomix:
 
 The command resolves the latest published nightly once, then uses that exact
 version on `logomix`, `macmini`, `myhome`, and `macbook`. SSH aliases must be
-configured on the machine running the command. No update timer is installed.
+configured on the machine running the command.
+
+For automatic updates, install the coordinator on Logomix:
+
+```sh
+~/.local/bin/t3-nightly-patch install-auto
+systemctl --user start --no-block t3-fleet-update.service
+```
+
+The user timer retries five minutes after each attempt finishes. A busy fleet
+keeps its selected version for the next attempt. A failed build checks for a
+newer published nightly on the next attempt. Progress is recorded in
+`~/.local/share/t3-nightly-patch/fleet-auto.json` and `fleet-last.json`.
+Disable the older MacBook `bio.logomix.t3-version-sync` LaunchAgent before enabling
+this timer. Only one coordinator should manage the fleet.
 
 Every node must be reachable before any build or restart begins. Each node
 receives the source patch and installer, builds for its own operating system and
@@ -27,11 +41,17 @@ An active-looking subagent record with a completed parent and no active child ru
 does not block restart; its persisted status is left unchanged. Unknown parents
 and independently active child runs continue to block restart.
 
-The fleet update is sequential, not an atomic transaction across machines. If a
-later activation fails, earlier nodes can already be updated. The fleet report
-records the last successful phase per node. A failed local activation attempts
-to restart former launchers; rollback errors remain visible. No database is
-restored or rewritten by the updater.
+Builds can finish while agents work. No activation begins until every node is
+idle. Each node records its former launchers before the first activation.
+Activation is sequential, so a brief version difference exists during the change.
+If any activation fails, the coordinator restores every attempted node in reverse
+order. Restore errors remain visible and are retried before another update begins.
+An interrupted coordinator recovers its recorded transaction on the next attempt.
+Live HTTP descriptors must report the selected version at every service and
+SSH-managed port. Process counts alone cannot satisfy readiness. Already patched,
+live services at the target version are left running.
+No database is restored or rewritten by the updater. Restoring older code cannot
+undo a database migration; a restore that cannot start remains an explicit failure.
 
 On macOS, an installed Nightly Desktop app is prepared from the matching official
 release ZIP, with its published SHA-256 checked. The patch updates both the bundled
@@ -66,6 +86,9 @@ Alpha and other applications are excluded. Desktop nodes activate before CLI nod
 so an old client's reconnect cannot restore an older SSH runtime. The new backend's
 PID and HTTP endpoint are checked. Failed startup restores and reopens the former app.
 Native mobile apps still require their own rebuild.
+The patched Desktop entry point disables the standard updater through
+`T3CODE_DISABLE_AUTO_UPDATE`, so a separate Desktop update cannot bypass the fleet
+coordinator.
 
 The backend patch targets every non-archived, non-deleted T3 conversation using
 Claude Code or Codex, excluding provider-native subagents. It sends `/compact`
@@ -94,8 +117,9 @@ Other commands:
 ~/.local/bin/t3-nightly-patch validate-desktop 0.0.46-nightly.20261014.3118
 ```
 
-`apply` prepares a patched runtime without restarting services. `update` prepares
-and activates only the local node. `status` shows builds and failures; `inspect`
+`apply` prepares a patched runtime without restarting services. `update` is an
+alias for the coordinated `update-all`. `activate` remains a low-level local
+operation and should not be used for routine updates. `status` shows builds and failures; `inspect`
 shows supported launchers and the aggregate active-work count. Fleet results are
 saved in `~/.local/share/t3-nightly-patch/fleet-last.json`. The patch source is
 captured from the committed feature branch during `install`; after changing the

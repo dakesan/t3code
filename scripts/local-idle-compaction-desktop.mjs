@@ -105,6 +105,7 @@ async function installedPatch(ctx, desktop, version, featureHash) {
     .catch(() => null);
   return (
     record?.version === version &&
+    record.fleetManaged === true &&
     record.featureHash === featureHash &&
     hash(await NodeFSP.readFile(NodePath.join(desktop.appPath, "Contents/Resources/app.asar"))) ===
       record.asarSha256
@@ -195,6 +196,14 @@ export async function repackDesktop(asar, appPath, source, work) {
   ).version;
   if (packageJson.version !== version) throw new Error("Desktop and server build versions differ");
   packageJson.t3codeWebAuthn = { browserPasskeys: false };
+  const entry = packageJson.main;
+  if (typeof entry !== "string" || !entry.endsWith(".cjs"))
+    throw new Error("Expected a CommonJS Desktop entry point");
+  await NodeFSP.writeFile(
+    NodePath.join(tree, "fleet-managed.cjs"),
+    `process.env.T3CODE_DISABLE_AUTO_UPDATE = "1";\nrequire(${JSON.stringify("./" + entry)});\n`,
+  );
+  packageJson.main = "fleet-managed.cjs";
   await NodeFSP.writeFile(
     NodePath.join(tree, "package.json"),
     JSON.stringify(packageJson, null, 2) + "\n",
@@ -435,7 +444,7 @@ export async function prepareDesktop(ctx, version) {
   const readyFile = NodePath.join(ctx.state, `desktop-ready-${version}.json`);
   const previous = await ctx.json(readyFile).catch(() => null);
   if (
-    previous?.formatVersion === 2 &&
+    previous?.formatVersion === 3 &&
     previous.featureHash === config.featureHash &&
     (await ctx.exists(previous.stagedApp))
   ) {
@@ -498,7 +507,8 @@ export async function prepareDesktop(ctx, version) {
     const asar = await loadAsar(source);
     const asarSha256 = await repackDesktop(asar, stagedApp, source, work);
     record = {
-      formatVersion: 2,
+      formatVersion: 3,
+      fleetManaged: true,
       version,
       featureHash: config.featureHash,
       appPath: desktop.appPath,
@@ -599,6 +609,7 @@ export async function activateDesktop(ctx, version, info, inspect) {
       version,
       backup,
       completedAt: new Date().toISOString(),
+      transaction: ctx.transaction ?? null,
     });
     console.log(
       `${NodeOS.hostname()}: Desktop ${version} patch active${wasRunning ? "" : " on next launch"}`,
