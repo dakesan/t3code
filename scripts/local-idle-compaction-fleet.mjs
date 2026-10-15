@@ -76,6 +76,7 @@ export async function exportPatch(ctx) {
     "local-idle-compaction-patch.mjs",
     "local-idle-compaction-fleet.mjs",
     "local-idle-compaction-desktop.mjs",
+    "local-idle-compaction-signing.mjs",
   ])
     await NodeFSP.copyFile(
       NodePath.join(NodePath.dirname(ctx.script), name),
@@ -728,6 +729,7 @@ export async function runFleet(ctx, version) {
           "local-idle-compaction-patch.mjs",
           "local-idle-compaction-fleet.mjs",
           "local-idle-compaction-desktop.mjs",
+          "local-idle-compaction-signing.mjs",
         ].map((name) => NodePath.join(payload, name)),
         `${node}:${root}/`,
       ]);
@@ -750,7 +752,25 @@ export async function runFleet(ctx, version) {
         ? ctx.run(process.execPath, args, { capture })
         : remote(node, ["node", ...args].map(quote).join(" "), capture);
     };
-    if (previous?.transaction && !previous.completedAt) {
+    if (previous?.transaction && !previous.completedAt && ctx.acceptCurrentBaseline) {
+      const archive = NodePath.join(
+        ctx.state,
+        `fleet-preserved-${previous.transaction}-${Date.now()}.json`,
+      );
+      await NodeFSP.writeFile(archive, JSON.stringify(previous, null, 2) + "\n", {
+        flag: "wx",
+        mode: 0o600,
+      });
+      report.baselineOverride = {
+        previousTransaction: previous.transaction,
+        preservedReport: archive,
+        authorized: true,
+        reason:
+          "Operator approved the current single-server baseline without changing the failed report",
+      };
+      console.log(`Previous failed transaction preserved: ${archive}`);
+    }
+    if (previous?.transaction && !previous.completedAt && !ctx.acceptCurrentBaseline) {
       for (const node of Object.keys(previous.nodes).toReversed()) {
         if (!["activating", "active", "restore-failed"].includes(previous.nodes[node].status))
           continue;

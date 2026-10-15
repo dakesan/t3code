@@ -68,8 +68,20 @@ from Launch Services after a smoke test, including failed tests. This keeps copi
 with the same app name and bundle ID out of normal launch resolution. The repair
 command below unregisters older copies and reopens the official installed app.
 
-A modified macOS app requires a local ad-hoc signature. The official developer and
-keychain-group entitlements cannot be carried by that signature, so the local build
+A modified macOS app requires a local signature. Run `t3-nightly-patch setup-signing`
+once on the MacBook to create a persistent code-signing identity in a dedicated
+keychain. Its generated password and encrypted key files remain in the private
+`~/.local/share/t3-nightly-patch/signing/` directory. The login-keychain password is
+not stored. Approve the certificate's code-signing trust once in the MacBook
+Terminal when setup prints the command. SSH cannot authorize that trust change.
+Setup signs two different binaries with the same identifier and checks that their
+designated requirements match and contain no `cdhash`. Subsequent app builds and
+GUI probes reuse the same certificate. macOS can still require an initial
+permission grant or a grant for a newly accessed folder. The previous ad-hoc build
+remains a different identity.
+
+The official developer and keychain-group entitlements cannot be carried by the
+local certificate, so the local build
 disables the embedded browser's passkey/Touch ID integration. It does not delete
 existing passkeys. Desktop activation requires an explicit recorded decision
 (`allowDesktopLocalBuild: true` in the patch configuration); without that decision,
@@ -89,6 +101,12 @@ Native mobile apps still require their own rebuild.
 The patched Desktop entry point disables the standard updater through
 `T3CODE_DISABLE_AUTO_UPDATE`, so a separate Desktop update cannot bypass the fleet
 coordinator.
+
+On a node where the SSH-managed server is the sole owner, set `manageBootService`
+to `false` and disable the unused boot service. A newer T3 server refuses two
+processes opening the same T3 home. The updater retains the SSH-managed port.
+Git-free status, activation, and rollback calls do not unlock the login keychain.
+An actual Git command prepares the login keychain once per installer process.
 
 The backend patch targets every non-archived, non-deleted T3 conversation using
 Claude Code or Codex, excluding provider-native subagents. It sends `/compact`
@@ -115,6 +133,7 @@ Other commands:
 ~/.local/bin/t3-nightly-patch inspect
 ~/.local/bin/t3-nightly-patch repair-desktop-launch
 ~/.local/bin/t3-nightly-patch validate-desktop 0.0.46-nightly.20261014.3118
+~/.local/bin/t3-nightly-patch setup-signing
 ```
 
 `apply` prepares a patched runtime without restarting services. `update` is an

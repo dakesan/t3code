@@ -6,6 +6,7 @@ import * as NodeChildProcess from "node:child_process";
 import * as NodeCrypto from "node:crypto";
 import * as NodeModule from "node:module";
 import * as NodeNet from "node:net";
+import { identityArguments, unlockSigningIdentity } from "./local-idle-compaction-signing.mjs";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const hash = (bytes) => NodeCrypto.createHash("sha256").update(bytes).digest("hex");
@@ -100,11 +101,13 @@ export async function repairDesktopLaunch(ctx) {
 }
 
 async function installedPatch(ctx, desktop, version, featureHash) {
+  const config = await ctx.settings();
   const record = await ctx
     .json(NodePath.join(desktop.appPath, "Contents/Resources", markerName))
     .catch(() => null);
   return (
     record?.version === version &&
+    record.signingIdentity === (config.desktopSigning?.identity ?? null) &&
     record.fleetManaged === true &&
     record.featureHash === featureHash &&
     hash(await NodeFSP.readFile(NodePath.join(desktop.appPath, "Contents/Resources/app.asar"))) ===
@@ -233,6 +236,11 @@ export async function repackDesktop(asar, appPath, source, work) {
 }
 
 async function signLocalDesktop(ctx, appPath, work) {
+  const config = await ctx.settings();
+  if (config.requireStableDesktopSigning && !config.desktopSigning)
+    throw new Error("Configure the persistent Desktop signing identity before preparing an app");
+  if (config.desktopSigning) await unlockSigningIdentity(config.desktopSigning);
+  const signer = config.desktopSigning ? identityArguments(config.desktopSigning) : ["--sign", "-"];
   const xml = await ctx.run("codesign", ["-d", "--entitlements", ":-", appPath], { capture: true });
   const entitlementsFile = NodePath.join(work, "local-entitlements.plist");
   const jsonFile = NodePath.join(work, "official-entitlements.json");
@@ -253,15 +261,13 @@ async function signLocalDesktop(ctx, appPath, work) {
   await ctx.run("codesign", [
     "--force",
     "--deep",
-    "--sign",
-    "-",
+    ...signer,
     "--preserve-metadata=entitlements,flags,runtime",
     appPath,
   ]);
   await ctx.run("codesign", [
     "--force",
-    "--sign",
-    "-",
+    ...signer,
     "--entitlements",
     entitlementsFile,
     "--preserve-metadata=flags,runtime",
@@ -346,10 +352,11 @@ export async function validateDesktopGui(ctx, version) {
   const info = guiValidationMetadata(await ctx.json(infoJson));
   await ctx.writeJson(plist, info);
   await ctx.run("plutil", ["-convert", "xml1", plist]);
+  const config = await ctx.settings();
+  if (config.desktopSigning) await unlockSigningIdentity(config.desktopSigning);
   await ctx.run("codesign", [
     "--force",
-    "--sign",
-    "-",
+    ...(config.desktopSigning ? identityArguments(config.desktopSigning) : ["--sign", "-"]),
     "--preserve-metadata=entitlements,flags,runtime",
     appPath,
   ]);
@@ -445,6 +452,7 @@ export async function prepareDesktop(ctx, version) {
   const previous = await ctx.json(readyFile).catch(() => null);
   if (
     previous?.formatVersion === 3 &&
+    previous.signingIdentity === (config.desktopSigning?.identity ?? null) &&
     previous.featureHash === config.featureHash &&
     (await ctx.exists(previous.stagedApp))
   ) {
@@ -514,7 +522,8 @@ export async function prepareDesktop(ctx, version) {
       appPath: desktop.appPath,
       stagedApp,
       asarSha256,
-      signing: "ad-hoc",
+      signing: config.desktopSigning ? "persistent-local-certificate" : "ad-hoc",
+      signingIdentity: config.desktopSigning?.identity ?? null,
       browserPasskeys: false,
       preparedAt: new Date().toISOString(),
     };
