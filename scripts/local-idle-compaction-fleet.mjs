@@ -260,10 +260,11 @@ export async function inspectLocal(ctx) {
   };
 }
 
-export function assertReady(info) {
+export function assertReady(info, allowActive = false) {
   if (info.desktop && typeof info.desktop !== "object")
     throw new Error("The Desktop installation could not be identified for patching.");
-  if (info.busy) throw new Error(`Active agent work (${info.busy}); retry after it finishes.`);
+  if (info.busy && !allowActive)
+    throw new Error(`Active agent work (${info.busy}); retry after it finishes.`);
   if (info.desktop && (info.service || info.managed.length))
     throw new Error("Desktop and CLI launchers share a node; refusing an ambiguous restart");
   if (!info.desktop && !info.service && !info.managed.length)
@@ -273,7 +274,7 @@ export function assertReady(info) {
 export async function activateLocal(ctx, version) {
   if (!versionPattern.test(version)) throw new Error("Expected an exact nightly version");
   const info = await inspectLocal(ctx);
-  assertReady(info);
+  assertReady(info, ctx.allowActive);
   if (info.desktop) return activateDesktop(ctx, version, info, () => inspectLocal(ctx));
   if (
     info.service &&
@@ -441,7 +442,7 @@ export async function snapshotFleetNode(ctx, transaction) {
   const file = snapshotFile(ctx, transaction);
   if (await ctx.exists(file)) throw new Error("Fleet snapshot already exists");
   const info = await inspectLocal(ctx);
-  assertReady(info);
+  assertReady(info, ctx.allowActive);
   if (
     info.service &&
     (!versionPattern.test(info.serviceVersion ?? "") ||
@@ -469,7 +470,7 @@ export async function rollbackFleetNode(ctx, transaction) {
   const snapshot = await ctx.json(file);
   if (snapshot.restoredAt) return;
   const current = await inspectLocal(ctx);
-  assertReady(current);
+  assertReady(current, ctx.allowActive);
   const lastRuntime = await ctx
     .json(NodePath.join(ctx.state, "last-success.json"))
     .catch(() => null);
@@ -744,6 +745,7 @@ export async function runFleet(ctx, version) {
         action,
         ["snapshot-fleet", "rollback-fleet"].includes(action) ? id : version,
         ...(action === "activate-fleet" ? [`--transaction=${id}`] : []),
+        ...(ctx.allowActive ? ["--allow-active"] : []),
       ];
       return node === localNode
         ? ctx.run(process.execPath, args, { capture })
@@ -787,7 +789,10 @@ export async function runFleet(ctx, version) {
           const inspection = JSON.parse((await call(node, "inspect", true)).split("\n").at(-1));
           report.nodes[node] = { ...report.nodes[node], inspection };
           // Builds are safe while agents work; activation waits until every node is idle.
-          assertReady(prepared === nodes.length ? inspection : { ...inspection, busy: 0 });
+          assertReady(
+            prepared === nodes.length ? inspection : { ...inspection, busy: 0 },
+            ctx.allowActive,
+          );
           if (prepared === nodes.length) await call(node, "snapshot-fleet");
         } catch (error) {
           report.nodes[node] = { ...report.nodes[node], status: "blocked", error: String(error) };
