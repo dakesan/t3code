@@ -166,10 +166,12 @@ export async function inspectLocal(ctx) {
     NodeOS.homedir(),
     "Library/LaunchAgents/com.t3tools.t3code.service.plist",
   );
+  const settings = await ctx.settings();
   const service =
-    NodeOS.platform() === "darwin"
+    settings.manageBootService !== false &&
+    (NodeOS.platform() === "darwin"
       ? await ctx.exists(plist)
-      : await ctx.exists(NodePath.join(NodeOS.homedir(), ".config/systemd/user/t3code.service"));
+      : await ctx.exists(NodePath.join(NodeOS.homedir(), ".config/systemd/user/t3code.service")));
   const managed = [];
   const launchRoot = NodePath.join(ctx.home, "ssh-launch");
   for (const name of await NodeFSP.readdir(launchRoot).catch(() => [])) {
@@ -681,8 +683,6 @@ export async function runFleet(ctx, version) {
   ];
   const envSetup =
     'export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$HOME/.mise/shims:/opt/homebrew/bin:/usr/local/bin:$PATH"; ';
-  const unlock =
-    'if [ "$(uname -s)" = Darwin ]; then security unlock-keychain "$HOME/Library/Keychains/login.keychain-db" || exit; fi; ';
   const previous = await ctx.json(NodePath.join(ctx.state, "fleet-last.json")).catch(() => null);
   const transaction = `fleet-${Date.now()}-${process.pid}`;
   const report = { transaction, version, startedAt: new Date().toISOString(), nodes: {} };
@@ -733,8 +733,7 @@ export async function runFleet(ctx, version) {
       ]);
       await remote(
         node,
-        unlock +
-          `node ${quote(root + "/local-idle-compaction-patch.mjs")} bootstrap ${quote(root)}`,
+        `node ${quote(root + "/local-idle-compaction-patch.mjs")} bootstrap ${quote(root)}`,
       );
     }
     const call = async (node, action, capture = false, id = transaction) => {
@@ -749,7 +748,7 @@ export async function runFleet(ctx, version) {
       ];
       return node === localNode
         ? ctx.run(process.execPath, args, { capture })
-        : remote(node, unlock + ["node", ...args].map(quote).join(" "), capture);
+        : remote(node, ["node", ...args].map(quote).join(" "), capture);
     };
     if (previous?.transaction && !previous.completedAt) {
       for (const node of Object.keys(previous.nodes).toReversed()) {
