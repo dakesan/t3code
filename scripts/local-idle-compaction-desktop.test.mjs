@@ -140,7 +140,12 @@ NodeTest.test(
       await NodeFSP.mkdir(NodePath.dirname(path), { recursive: true });
       await NodeFSP.writeFile(path, text);
     };
-    await write(original, "package.json", JSON.stringify({ version: "nightly" }));
+    await write(
+      original,
+      "package.json",
+      JSON.stringify({ version: "nightly", main: "apps/desktop/main.cjs" }),
+    );
+    await write(original, "apps/desktop/main.cjs", "original Desktop entry");
     await write(original, native, "Electron ABI native binary");
     await write(original, "apps/server/dist/bin.mjs", "old backend");
     await write(original, "apps/server/dist/client/old-hash.js", "old cached client");
@@ -151,6 +156,18 @@ NodeTest.test(
     await write(source, "apps/server/dist/client/new-hash.js", "countdown client");
     await repackDesktop(asar, app, source, work);
     asar.uncacheAll();
+    NodeAssert.equal(
+      JSON.parse(asar.extractFile(archive, "package.json").toString()).main,
+      "fleet-managed.cjs",
+    );
+    NodeAssert.equal(
+      asar.extractFile(archive, "fleet-managed.cjs").toString(),
+      'process.env.T3CODE_DISABLE_AUTO_UPDATE = "1";\nrequire("./apps/desktop/main.cjs");\n',
+    );
+    NodeAssert.equal(
+      asar.extractFile(archive, "apps/desktop/main.cjs").toString(),
+      "original Desktop entry",
+    );
     NodeAssert.equal(
       asar.extractFile(archive, "apps/server/dist/bin.mjs").toString(),
       "patched backend",
