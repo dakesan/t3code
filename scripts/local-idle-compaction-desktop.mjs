@@ -107,6 +107,7 @@ async function installedPatch(ctx, desktop, version, featureHash) {
     .catch(() => null);
   return (
     record?.version === version &&
+    record.manualUpdates === true &&
     record.signingIdentity === (config.desktopSigning?.identity ?? null) &&
     record.fleetManaged === true &&
     record.featureHash === featureHash &&
@@ -204,7 +205,11 @@ export async function repackDesktop(asar, appPath, source, work) {
     throw new Error("Expected a CommonJS Desktop entry point");
   await NodeFSP.writeFile(
     NodePath.join(tree, "fleet-managed.cjs"),
-    `process.env.T3CODE_DISABLE_AUTO_UPDATE = "1";\nrequire(${JSON.stringify("./" + entry)});\n`,
+    `process.env.T3CODE_DISABLE_AUTO_UPDATE = "1";\nif (!process.env.T3_PATCH_GUI_VALIDATION) require("./fleet-manual.cjs").install(require("electron"));\nrequire(${JSON.stringify("./" + entry)});\n`,
+  );
+  await NodeFSP.copyFile(
+    new URL("./local-idle-compaction-manual.cjs", import.meta.url),
+    NodePath.join(tree, "fleet-manual.cjs"),
   );
   packageJson.main = "fleet-managed.cjs";
   await NodeFSP.writeFile(
@@ -393,6 +398,8 @@ export async function validateDesktopGui(ctx, version) {
       `T3CODE_HOME=${t3Home}`,
       "--env",
       "T3CODE_DISABLE_AUTO_UPDATE=1",
+      "--env",
+      "T3_PATCH_GUI_VALIDATION=1",
       "--stdout",
       NodePath.join(work, "gui.stdout.log"),
       "--stderr",
@@ -452,6 +459,7 @@ export async function prepareDesktop(ctx, version) {
   const previous = await ctx.json(readyFile).catch(() => null);
   if (
     previous?.formatVersion === 3 &&
+    previous.manualUpdates === true &&
     previous.signingIdentity === (config.desktopSigning?.identity ?? null) &&
     previous.featureHash === config.featureHash &&
     (await ctx.exists(previous.stagedApp))
@@ -517,6 +525,7 @@ export async function prepareDesktop(ctx, version) {
     record = {
       formatVersion: 3,
       fleetManaged: true,
+      manualUpdates: true,
       version,
       featureHash: config.featureHash,
       appPath: desktop.appPath,
