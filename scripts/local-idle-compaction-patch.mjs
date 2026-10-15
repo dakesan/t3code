@@ -21,6 +21,7 @@ import {
   repairDesktopLaunch,
   validateDesktopGui,
 } from "./local-idle-compaction-desktop.mjs";
+import { setupSigningIdentity } from "./local-idle-compaction-signing.mjs";
 
 let repo = NodePath.resolve(NodePath.dirname(NodeURL.fileURLToPath(import.meta.url)), "..");
 const base = "v0.0.46-nightly.20261012.3010";
@@ -314,6 +315,7 @@ async function main() {
     repo = (await json(configFile)).repo ?? repo;
   const context = {
     allowActive: args.includes("--allow-active"),
+    acceptCurrentBaseline: args.includes("--accept-current-baseline"),
     repo,
     base,
     state,
@@ -337,6 +339,24 @@ async function main() {
   }
   if (action === "inspect") {
     console.log(JSON.stringify(await inspectLocal(context)));
+    return;
+  }
+  if (action === "setup-signing") {
+    await withLock(async () => {
+      const identity = await setupSigningIdentity(state);
+      const config = await settings();
+      await writeJson(configFile, {
+        ...config,
+        desktopSigning: identity,
+        requireStableDesktopSigning: true,
+      });
+      console.log(
+        JSON.stringify({
+          identity: identity.identity,
+          designatedRequirement: identity.designatedRequirement,
+        }),
+      );
+    });
     return;
   }
   if (action === "auto-update") {
@@ -464,6 +484,9 @@ async function main() {
       localNode: previous.localNode,
       desktopAppPath: previous.desktopAppPath,
       allowDesktopLocalBuild: previous.allowDesktopLocalBuild,
+      desktopSigning: previous.desktopSigning,
+      requireStableDesktopSigning: previous.requireStableDesktopSigning,
+      manageBootService: previous.manageBootService,
       repo,
       patchCommit,
       base,
