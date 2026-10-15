@@ -90,7 +90,15 @@ async function publish(version, staging, patchCommit, transaction = null) {
   await writeJson(NodePath.join(state, "last-error.json"), null);
   console.log(`${version}: patch installed; the normal T3 updater can use this prepared runtime.`);
 }
+let keychainPrepared = false;
 async function run(command, args, options = {}) {
+  if (command === "git" && NodeOS.platform() === "darwin" && !keychainPrepared) {
+    await run("/usr/bin/security", [
+      "unlock-keychain",
+      NodePath.join(NodeOS.homedir(), "Library/Keychains/login.keychain-db"),
+    ]);
+    keychainPrepared = true;
+  }
   const child = NodeChildProcess.spawn(command, args, {
     cwd: options.cwd ?? repo,
     env: {
