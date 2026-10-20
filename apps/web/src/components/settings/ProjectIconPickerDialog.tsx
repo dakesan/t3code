@@ -47,12 +47,14 @@ function iconLabel(name: string): string {
 
 export function ProjectIconPickerDialog({
   current,
+  title = "Choose project icon",
   projectName,
   open,
   onOpenChange,
   onSelect,
 }: {
   readonly current: ProjectIconOverride | null;
+  readonly title?: string;
   readonly projectName: string;
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
@@ -107,7 +109,7 @@ export function ProjectIconPickerDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogPopup className="w-full sm:w-[32rem]">
         <DialogHeader>
-          <DialogTitle>Choose project icon</DialogTitle>
+          <DialogTitle>{title}</DialogTitle>
           <DialogDescription>Choose an icon, emoji, or monogram.</DialogDescription>
         </DialogHeader>
         <DialogPanel className="flex min-h-0 flex-col">

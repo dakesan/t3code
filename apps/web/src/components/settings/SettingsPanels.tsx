@@ -1,3 +1,4 @@
+import { ComposerQuickActionsSettings } from "./ComposerQuickActionsSettings";
 import { SettingsGroup } from "./SettingsGroup";
 import { settingsScopeEnvironmentLabels } from "./settingsScopeAxis";
 import { useScopedSettingsWriteAllowed } from "./useScopedSettings";
@@ -612,6 +613,9 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.composerCollapseOnScroll !== DEFAULT_UNIFIED_SETTINGS.composerCollapseOnScroll
       ? ["Collapse composer on scroll"]
       : []),
+    ...(!Equal.equals(settings.composerQuickActions, DEFAULT_UNIFIED_SETTINGS.composerQuickActions)
+      ? ["Quick action shortcuts"]
+      : []),
     ...(settings.composerRichTextEnabled !== DEFAULT_UNIFIED_SETTINGS.composerRichTextEnabled
       ? ["Rich text composer"]
       : []),
@@ -732,6 +736,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       proactivePanelsEnabled: DEFAULT_UNIFIED_SETTINGS.proactivePanelsEnabled,
       showSkillsInSlashMenu: DEFAULT_UNIFIED_SETTINGS.showSkillsInSlashMenu,
       composerCollapseOnScroll: DEFAULT_UNIFIED_SETTINGS.composerCollapseOnScroll,
+      composerQuickActions: DEFAULT_UNIFIED_SETTINGS.composerQuickActions,
       composerRichTextEnabled: DEFAULT_UNIFIED_SETTINGS.composerRichTextEnabled,
       sendShortcut: DEFAULT_UNIFIED_SETTINGS.sendShortcut,
       followUpBehavior: DEFAULT_UNIFIED_SETTINGS.followUpBehavior,
@@ -2687,6 +2692,8 @@ export function GeneralSettingsPanel() {
             />
           }
         />
+
+        <ComposerQuickActionsSettings />
 
         <SettingsRow
           {...searchableSetting("composer-rich-text")}

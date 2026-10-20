@@ -1,3 +1,5 @@
+import { ComposerQuickActions, DEFAULT_COMPOSER_QUICK_ACTIONS } from "./composerQuickAction.ts";
+export { ComposerQuickAction, DEFAULT_COMPOSER_QUICK_ACTIONS } from "./composerQuickAction.ts";
 import { EasDeviceHostConfigs, SshDeviceHostConfigs } from "./device.ts";
 import {
   AuthOrchestrationOperateScope,
@@ -433,6 +435,9 @@ export const ClientSettingsSchema = Schema.Struct({
   planModeEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   contextWindowMeterEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   composerCollapseOnScroll: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  composerQuickActions: ComposerQuickActions.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_COMPOSER_QUICK_ACTIONS)),
+  ),
   composerRichTextEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   sendShortcut: Schema.Literals(["enter", "mod-enter-multiline", "mod-enter"]).pipe(
     Schema.withDecodingDefault(Effect.succeed("enter")),
@@ -1634,6 +1639,7 @@ export const ClientSettingsPatch = Schema.Struct({
   planModeEnabled: Schema.optionalKey(Schema.Boolean),
   contextWindowMeterEnabled: Schema.optionalKey(Schema.Boolean),
   composerCollapseOnScroll: Schema.optionalKey(Schema.Boolean),
+  composerQuickActions: Schema.optionalKey(ComposerQuickActions),
   composerRichTextEnabled: Schema.optionalKey(Schema.Boolean),
   sendShortcut: Schema.optionalKey(Schema.Literals(["enter", "mod-enter-multiline", "mod-enter"])),
   followUpBehavior: Schema.optionalKey(Schema.Literals(["queue", "steer"])),

@@ -416,6 +416,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["command menu dollar $ slash /"],
   },
   {
+    id: "composer-quick-actions",
+    title: "Quick action shortcuts",
+    to: "/settings/general",
+    searchTerms: ["council lgtm explain prompt template emoji icon shortcut 定型文 絵文字"],
+  },
+  {
     id: "composer-rich-text",
     title: "Rich text composer",
     to: "/settings/general",

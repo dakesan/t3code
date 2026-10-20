@@ -6472,6 +6472,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       {...threadContextDropTargetProps()}
     >
       <ComposerQuickActions
+        actions={settings.composerQuickActions}
         canInsert={
           canOperateThread &&
           !isConnecting &&
