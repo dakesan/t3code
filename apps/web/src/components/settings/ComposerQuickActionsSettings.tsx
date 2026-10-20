@@ -38,7 +38,7 @@ export function ComposerQuickActionsSettings() {
   return (
     <SettingsRow
       {...searchableSetting("composer-quick-actions")}
-      description="Customize the buttons above the message box. Changes save automatically for this client. Buttons insert text into the draft without sending it."
+      description="Customize the buttons next to the model and permissions controls. Changes save automatically for this client. Buttons insert text into the draft without sending it."
       resetAction={
         !Equal.equals(actions, DEFAULT_COMPOSER_QUICK_ACTIONS) ? (
           <SettingResetButton

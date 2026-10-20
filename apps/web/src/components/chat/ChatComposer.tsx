@@ -5305,6 +5305,25 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           />
         </div>
       </>
+      <ComposerQuickActions
+        actions={settings.composerQuickActions}
+        canInsert={
+          canOperateThread &&
+          !isConnecting &&
+          !isComposerApprovalState &&
+          !activePendingProgress &&
+          !projectSelectionRequired &&
+          !isRevertingCheckpoint
+        }
+        onInsert={(text) => {
+          const current = promptRef.current;
+          applyPromptReplacementStable(
+            current.length,
+            current.length,
+            current.trim() ? "\n\n" + text : text,
+          );
+        }}
+      />
     </>
   );
   const showTasksTab =
@@ -6471,25 +6490,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       data-chat-composer-form="true"
       {...threadContextDropTargetProps()}
     >
-      <ComposerQuickActions
-        actions={settings.composerQuickActions}
-        canInsert={
-          canOperateThread &&
-          !isConnecting &&
-          !isComposerApprovalState &&
-          !activePendingProgress &&
-          !projectSelectionRequired &&
-          !isRevertingCheckpoint
-        }
-        onInsert={(text) => {
-          const current = promptRef.current;
-          applyPromptReplacementStable(
-            current.length,
-            current.length,
-            current.trim() ? "\n\n" + text : text,
-          );
-        }}
-      />
       {composerControlsCollapsed && restingControlsHost
         ? createPortal(
             <div

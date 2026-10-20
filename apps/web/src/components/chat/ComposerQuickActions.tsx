@@ -11,11 +11,7 @@ export function ComposerQuickActions(props: {
   const actions = props.actions.filter((action) => action.enabled);
   if (actions.length === 0) return null;
   return (
-    <div
-      role="group"
-      aria-label="Quick actions"
-      className="mb-2 flex flex-wrap items-center gap-1.5"
-    >
+    <div role="group" aria-label="Quick actions" className="flex shrink-0 items-center gap-1.5">
       {actions.map((action) => (
         <Tooltip key={action.id}>
           <TooltipTrigger
