@@ -5629,10 +5629,7 @@ export default function ChatView(props: ChatViewProps) {
           },
         })
       : null;
-  const idleCompactState = useMemo(
-    () => (serverProjection ? idleCompactionState(serverProjection) : null),
-    [serverProjection],
-  );
+  const idleCompactState = serverProjection ? idleCompactionState(serverProjection) : null;
   const idleCompactMinutes = idleCompactState
     ? idleCompactionMinutesRemaining(idleCompactState.deadline, Date.parse(`${nowMinute}:00.000Z`))
     : null;
