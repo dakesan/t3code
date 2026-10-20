@@ -3,7 +3,9 @@ import {
   getProjectFaviconResourceKey,
   isProjectFaviconFallbackUrl,
 } from "@t3tools/shared/projectFavicon";
-import { FolderCodeIcon } from "lucide-react";
+import { FolderCodeIcon, HouseIcon, LaptopIcon, MonitorIcon, ServerIcon } from "lucide-react";
+import { useEnvironment } from "../state/environments";
+import { resolveNodeIcon } from "../nodeIcon";
 import type { ComponentType } from "react";
 import { createElement, lazy, Suspense, useState } from "react";
 import { useAtomValue } from "@effect/atom-react";
@@ -40,6 +42,11 @@ export function ProjectFavicon(input: {
   fallbackIcon?: ComponentType<{ className?: string }>;
 }) {
   const { project } = input;
+  const environment = useEnvironment(project.environmentId);
+  const nodeIcon = resolveNodeIcon({
+    label: environment?.serverConfig?.environment.label ?? environment?.label ?? "",
+    machine: environment?.serverConfig?.environment.platform.machine ?? null,
+  });
   const src = useAtomValue(
     projectFaviconUrlAtom({
       environmentId: project.environmentId,
@@ -47,6 +54,12 @@ export function ProjectFavicon(input: {
       faviconPath: project.faviconPath,
     }),
   );
+  if (nodeIcon) {
+    const Icon = { server: ServerIcon, house: HouseIcon, monitor: MonitorIcon, laptop: LaptopIcon }[
+      nodeIcon.name
+    ];
+    return <Icon aria-hidden className={cn("shrink-0", input.className, nodeIcon.className)} />;
+  }
   if (project.projectIcon?.kind === "monogram") {
     return (
       <ProjectMonogram

@@ -1,3 +1,4 @@
+vi.mock("../state/environments", () => ({ useEnvironment: () => null }));
 import type { ComponentType, Dispatch, ReactElement, SetStateAction } from "react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { EnvironmentId } from "@t3tools/contracts";

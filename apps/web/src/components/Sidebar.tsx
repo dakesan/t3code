@@ -1941,6 +1941,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     shouldRecede &&
       status === "working" &&
       "opacity-70 transition-opacity hover:opacity-100 focus-within:opacity-100 motion-reduce:transition-none",
+    props.isPinned && "ring-1 ring-inset ring-sidebar-pinned/80",
     isFileDragOver && "ring-1 ring-inset ring-primary/70",
     isFileDragOver && !props.isActive && !isSelected && "bg-sidebar-row-hover",
     props.sortable?.isDragging &&
@@ -2159,7 +2160,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               className={cn(
                 "flex shrink-0 items-center transition-opacity",
                 (!props.isActive || variantAction === "unsettle") &&
-                  "opacity-40 grayscale group-focus-within/sidebar-row:opacity-100 group-focus-within/sidebar-row:grayscale-0 group-hover/sidebar-row:opacity-100 group-hover/sidebar-row:grayscale-0",
+                  "opacity-60 group-focus-within/sidebar-row:opacity-100 group-hover/sidebar-row:opacity-100",
               )}
             >
               {props.project ? <ProjectFavicon project={props.project} className="size-4" /> : null}
@@ -2675,7 +2676,7 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
                 props.isSettled &&
                   !props.isRouteActive &&
                   !props.isHighlighted &&
-                  "opacity-40 grayscale group-hover/sidebar-row:opacity-100 group-hover/sidebar-row:grayscale-0",
+                  "opacity-60 group-hover/sidebar-row:opacity-100",
               )}
             />
           ) : null}
