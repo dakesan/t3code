@@ -6,7 +6,12 @@ import {
 } from "../composerFooterLayout";
 import { measureRestingComposerControls } from "./restingComposerControlsMeasurement";
 
-function measurePicker(input: { clientWidth: number; flexGrow: string; maxWidth?: string }) {
+function measurePicker(input: {
+  clientWidth: number;
+  flexGrow: string;
+  maxWidth?: string;
+  quickActions?: boolean;
+}) {
   const label = { clientWidth: input.clientWidth, scrollWidth: 160 };
   const picker = {
     getBoundingClientRect: () => ({ width: 52 }),
@@ -15,6 +20,7 @@ function measurePicker(input: { clientWidth: number; flexGrow: string; maxWidth?
   const controls = {
     querySelector: (selector: string) => {
       if (selector === "[data-chat-provider-model-picker]") return picker;
+      if (selector === "[data-quick-actions-layout]" && input.quickActions) return {};
       if (selector === "[data-resting-controls-overflow]") {
         return { getBoundingClientRect: () => ({ width: 24 }) };
       }
@@ -31,7 +37,7 @@ function measurePicker(input: { clientWidth: number; flexGrow: string; maxWidth?
   vi.stubGlobal("getComputedStyle", (element: unknown) => {
     if (element === label) return { flexGrow: input.flexGrow };
     if (element === picker) return { minWidth: "52px", maxWidth: input.maxWidth ?? "none" };
-    return { columnGap: "4px" };
+    return { columnGap: "4px", minWidth: "28px" };
   });
   return measureRestingComposerControls(controls as unknown as HTMLElement)!;
 }
@@ -49,6 +55,15 @@ describe("measureRestingComposerControls", () => {
       iconOnlyCount: 0,
       visible: true,
     });
+  });
+
+  it("reserves room for the quick action menu before hiding other controls", () => {
+    const measurement = measurePicker({ clientWidth: 0, flexGrow: "0", quickActions: true });
+    expect(measurement.naturalFixedWidth).toBe(84);
+    expect(measurement.minimumFixedWidth).toBe(84);
+    expect(
+      resolveRestingComposerControlsLayout({ ...measurement, hostWidth: 200 }).hiddenCount,
+    ).toBe(1);
   });
 
   it("recovers truncated text while the model label is flexible", () => {
