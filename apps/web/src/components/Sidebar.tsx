@@ -1,3 +1,4 @@
+import { groupSidebarWorkspaces } from "./Sidebar.workspaceTree";
 import { type EnvironmentId, type ScopedProjectRef } from "@t3tools/contracts";
 import type { EnvironmentServerConfig } from "@t3tools/client-runtime/connection";
 import { ThreadHoverCard, ThreadHoverCardPopup } from "./ThreadHoverCard";
@@ -1543,6 +1544,7 @@ const dropVerbBadge: Record<SidebarDropVerb, ReactNode> = {
 };
 
 type SidebarThreadRowProps = {
+  workspaceTree?: "child" | "last" | undefined;
   thread: SidebarThreadSummary;
   variant: "card" | "slim";
   variantAction: SidebarSweepAction;
@@ -1918,6 +1920,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     }
   };
 
+  const workspaceTreeClassName =
+    props.workspaceTree &&
+    cn(
+      "relative ml-3 pl-3 before:absolute before:left-0 before:top-0 before:border-l before:border-muted-foreground/30 after:absolute after:left-0 after:top-1/2 after:w-3 after:border-t after:border-muted-foreground/30",
+      props.workspaceTree === "last" ? "before:h-1/2" : "before:h-full",
+    );
   const rowSurfaceClassName = cn(
     "group/sidebar-row relative w-full cursor-pointer overflow-hidden rounded-md text-left outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
     variantAction === "unsettle" && "[&:not(:hover):not(:focus-within)_*]:text-secondary-label/70",
@@ -1995,7 +2003,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       <span
         aria-hidden
         className={cn(
-          "min-w-0 flex-1 text-sm transition-opacity motion-reduce:transition-none",
+          "min-w-0 flex-1 transition-opacity motion-reduce:transition-none",
+          props.workspaceTree ? "text-xs" : "text-sm",
           shouldRecede ? "font-normal" : "font-medium",
           variant === "card"
             ? cn(
@@ -2021,6 +2030,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           isRegeneratingTitle && "opacity-55",
         )}
       >
+        {props.workspaceTree && variant === "slim" ? (
+          <span className="block truncate text-2xs text-secondary-label">
+            {props.environmentLabel ?? thread.environmentId} · {thread.branch ?? "No branch"}
+          </span>
+        ) : null}
         {thread.title}
       </span>
     );
@@ -2114,6 +2128,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         className={cn(
           "list-none [content-visibility:auto] [contain-intrinsic-size:auto_36px]",
           sortable?.isDragging && "relative z-20",
+          workspaceTreeClassName,
         )}
       >
         <Tooltip disabled={sortable?.isDragging}>
@@ -2127,7 +2142,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                 aria-current={accessibility.current}
                 data-testid="sidebar-row-slim"
                 aria-busy={isRegeneratingTitle || undefined}
-                className={cn(rowSurfaceClassName, "flex h-9 items-center gap-2.5 px-2.5")}
+                className={cn(
+                  rowSurfaceClassName,
+                  "flex items-center gap-2.5 px-2.5",
+                  props.workspaceTree ? "h-12" : "h-9",
+                )}
                 onClick={handleClick}
                 onDoubleClick={handleDoubleClick}
                 onKeyDown={handleKeyDown}
@@ -2273,6 +2292,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       className={cn(
         "list-none py-0.5 [content-visibility:auto] [contain-intrinsic-size:auto_78px]",
         sortable?.isDragging && "relative z-20",
+        workspaceTreeClassName,
       )}
     >
       <Tooltip disabled={snoozeMenuOpen || sortable?.isDragging}>
@@ -2304,14 +2324,16 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               {/* Left of the status slot, the pin would slide when hover swaps the
                 label for the wider row controls. */}
               {pinIndicator}
-              {props.projectDisplayName ? (
+              {props.projectDisplayName || props.workspaceTree ? (
                 <span
                   className={cn(
                     "min-w-0 flex-1 truncate text-secondary-label text-xs",
                     shouldRecede ? "font-normal" : "font-medium",
                   )}
                 >
-                  {props.projectDisplayName}
+                  {props.workspaceTree
+                    ? (props.environmentLabel ?? thread.environmentId)
+                    : props.projectDisplayName}
                 </span>
               ) : (
                 <span className="flex-1" />
@@ -2465,11 +2487,16 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               ) : null}
             </div>
             <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-secondary-label text-xs">
-              {thread.branch ? (
+              {thread.branch || props.workspaceTree ? (
                 <>
                   <ThreadWorktreeIndicator thread={thread} />
-                  <span className="flex min-w-0 flex-1 text-muted-foreground/40">
-                    <MiddleTruncate value={thread.branch} showTitle={false} />
+                  <span
+                    className={cn(
+                      "flex min-w-0 flex-1",
+                      props.workspaceTree ? "text-secondary-label" : "text-muted-foreground/40",
+                    )}
+                  >
+                    <MiddleTruncate value={thread.branch ?? "No branch"} showTitle={false} />
                   </span>
                 </>
               ) : showsScratchMachine ? (
@@ -3551,10 +3578,16 @@ export default function Sidebar() {
       list: readonly EnvironmentThreadShell[],
       section: SidebarSection,
     ): SidebarListItem[] =>
-      list.map((thread) => {
-        const key = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
-        return { kind: "thread", key, section };
-      });
+      groupSidebarWorkspaces(
+        list,
+        (thread) =>
+          projectByKey.get(`${thread.environmentId}:${thread.projectId}`)?.workspaceRoot ?? null,
+      )
+        .flat()
+        .map((thread) => {
+          const key = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+          return { kind: "thread", key, section };
+        });
     if (
       pinnedThreads.length +
         activeThreads.length +
@@ -4811,6 +4844,7 @@ export default function Sidebar() {
                       const renderThreadRow = (
                         thread: EnvironmentThreadShell,
                         section: SidebarSection,
+                        workspaceTree?: "child" | "last",
                       ) => {
                         const threadKey = scopedThreadKey(
                           scopeThreadRef(thread.environmentId, thread.id),
@@ -4829,6 +4863,7 @@ export default function Sidebar() {
                               optimisticDrop !== null
                             }
                             thread={thread}
+                            workspaceTree={workspaceTree}
                             variant={rowVariant}
                             variantAction={
                               section === "snoozed"
@@ -4929,9 +4964,79 @@ export default function Sidebar() {
                           onDraftContextMenu={handleDraftContextMenu}
                         />,
                       ];
+                      const workspaceRows = new Map<
+                        string,
+                        { path: string; first: boolean; last: boolean }
+                      >();
+                      for (const section of [
+                        "pinned",
+                        "active",
+                        "working",
+                        "snoozed",
+                        "settled",
+                      ] as const) {
+                        const sectionThreads = sidebarListItems.flatMap((item) => {
+                          const thread =
+                            item.kind === "thread" && item.section === section
+                              ? threadByKey.get(item.key)
+                              : undefined;
+                          return thread ? [thread] : [];
+                        });
+                        for (const group of groupSidebarWorkspaces(
+                          sectionThreads,
+                          (thread) =>
+                            projectByKey.get(`${thread.environmentId}:${thread.projectId}`)
+                              ?.workspaceRoot ?? null,
+                        )) {
+                          if (group.length < 2) continue;
+                          group.forEach((thread, index) => {
+                            const path =
+                              thread.worktreePath ??
+                              projectByKey.get(`${thread.environmentId}:${thread.projectId}`)
+                                ?.workspaceRoot;
+                            if (path)
+                              workspaceRows.set(
+                                scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+                                {
+                                  path,
+                                  first: index === 0,
+                                  last: index === group.length - 1,
+                                },
+                              );
+                          });
+                        }
+                      }
                       for (const item of sidebarListItems) {
                         if (item.kind === "thread") {
-                          items.push(renderThreadRow(threadByKey.get(item.key)!, item.section));
+                          const workspace = workspaceRows.get(item.key);
+                          if (workspace?.first)
+                            items.push(
+                              <li
+                                key={`workspace:${item.key}`}
+                                className="min-w-0 truncate px-2.5 pt-2 pb-1 text-xs text-secondary-label"
+                              >
+                                <Tooltip>
+                                  <TooltipTrigger render={<span className="block truncate" />}>
+                                    <MiddleTruncate
+                                      value={workspace.path
+                                        .split(/[\\/]/)
+                                        .filter(Boolean)
+                                        .slice(-2)
+                                        .join("/")}
+                                      showTitle={false}
+                                    />
+                                  </TooltipTrigger>
+                                  <TooltipPopup side="right">{workspace.path}</TooltipPopup>
+                                </Tooltip>
+                              </li>,
+                            );
+                          items.push(
+                            renderThreadRow(
+                              threadByKey.get(item.key)!,
+                              item.section,
+                              workspace ? (workspace.last ? "last" : "child") : undefined,
+                            ),
+                          );
                           continue;
                         }
                         switch (item.marker) {
