@@ -1,3 +1,4 @@
+import { ComposerQuickActions } from "./ComposerQuickActions";
 import { formatProviderSkillDisplayName } from "@t3tools/shared/inlineSkills";
 import { useComposerTypingGuard } from "./useComposerTypingGuard";
 import { insertAttachmentReferencesForDraft } from "./composerAttachmentReferences";
@@ -6470,6 +6471,24 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       data-chat-composer-form="true"
       {...threadContextDropTargetProps()}
     >
+      <ComposerQuickActions
+        canInsert={
+          canOperateThread &&
+          !isConnecting &&
+          !isComposerApprovalState &&
+          !activePendingProgress &&
+          !projectSelectionRequired &&
+          !isRevertingCheckpoint
+        }
+        onInsert={(text) => {
+          const current = promptRef.current;
+          applyPromptReplacementStable(
+            current.length,
+            current.length,
+            current.trim() ? "\n\n" + text : text,
+          );
+        }}
+      />
       {composerControlsCollapsed && restingControlsHost
         ? createPortal(
             <div
