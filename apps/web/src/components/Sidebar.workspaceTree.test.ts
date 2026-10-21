@@ -1,67 +1,62 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
   groupSidebarWorkspaces,
+  migrateSidebarWorkspaceOrder,
   moveSidebarWorkspace,
   orderSidebarWorkspaces,
 } from "./Sidebar.workspaceTree";
 
-type FixtureThread = {
-  id: string;
-  environmentId: string;
-  projectId: string;
-  worktreePath: string | null;
-  root: string | null;
-};
-const thread = (id: string, overrides: Partial<FixtureThread> = {}): FixtureThread => ({
-  id,
-  environmentId: "macbook",
-  projectId: "project",
-  worktreePath: "/repo/worktree",
-  root: "/repo",
-  ...overrides,
-});
-const group = (threads: ReturnType<typeof thread>[]) =>
-  groupSidebarWorkspaces(threads, (item) => item.root).map((items) => items.map((item) => item.id));
+const group = (threads: readonly { id: string; key: string | null }[]) =>
+  groupSidebarWorkspaces(threads, (thread) => thread.key).map((items) =>
+    items.map((item) => item.id),
+  );
 
 describe("groupSidebarWorkspaces", () => {
-  it("collects matching paths at their first appearance and preserves child order", () => {
-    expect(group([thread("a"), thread("b", { worktreePath: "/other" }), thread("c")])).toEqual([
-      ["a", "c"],
-      ["b"],
-    ]);
-  });
-  it("keeps environments, projects and distinct paths separate", () => {
+  it("collects matching keys at their first appearance and preserves child order", () => {
     expect(
       group([
-        thread("a"),
-        thread("b", { environmentId: "macmini" }),
-        thread("c", { projectId: "other" }),
-        thread("d", { worktreePath: "/different" }),
+        { id: "a", key: "repo" },
+        { id: "b", key: "other" },
+        { id: "c", key: "repo" },
       ]),
-    ).toEqual([["a"], ["b"], ["c"], ["d"]]);
+    ).toEqual([["a", "c"], ["b"]]);
   });
-  it("uses the project root for local checkouts, including explicit root paths", () => {
-    expect(
-      group([thread("a", { worktreePath: null }), thread("b", { worktreePath: "/repo" })]),
-    ).toEqual([["a", "b"]]);
-  });
-  it("does not combine unknown paths", () => {
+  it("does not combine threads without a key", () => {
     expect(
       group([
-        thread("a", { worktreePath: null, root: null }),
-        thread("b", { worktreePath: null, root: null }),
+        { id: "a", key: null },
+        { id: "b", key: null },
       ]),
     ).toEqual([["a"], ["b"]]);
   });
   it("handles empty lists and singleton workspaces", () => {
     expect(group([])).toEqual([]);
-    expect(group([thread("a")])).toEqual([["a"]]);
+    expect(group([{ id: "a", key: "repo" }])).toEqual([["a"]]);
   });
-  it("does not mutate the input", () => {
-    const input = [thread("a"), thread("b", { worktreePath: "/other" }), thread("c")];
-    const before = structuredClone(input);
-    group(input);
-    expect(input).toEqual(before);
+});
+
+describe("migrateSidebarWorkspaceOrder", () => {
+  const keyOfProject = (environmentId: string, projectId: string) =>
+    projectId === "gone" ? null : `repo-of-${projectId}`;
+  it("rewrites per-checkout keys and keeps the first place of keys that now coincide", () => {
+    expect(
+      migrateSidebarWorkspaceOrder(
+        [
+          JSON.stringify(["macbook", "dotfiles", "/Users/me/dotfiles"]),
+          "repo-of-pipeline",
+          JSON.stringify(["server", "dotfiles", "/home/me/dotfiles"]),
+          JSON.stringify(["server", "pipeline", "/home/me/.t3/worktrees/pipeline/exp01"]),
+        ],
+        keyOfProject,
+      ),
+    ).toEqual(["repo-of-dotfiles", "repo-of-pipeline"]);
+  });
+  it("keeps keys it cannot resolve", () => {
+    const unresolved = JSON.stringify(["macbook", "gone", "/gone"]);
+    expect(migrateSidebarWorkspaceOrder([unresolved, "[broken"], keyOfProject)).toEqual([
+      unresolved,
+      "[broken",
+    ]);
   });
 });
 

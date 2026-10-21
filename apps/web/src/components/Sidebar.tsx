@@ -1,8 +1,8 @@
 import {
   groupSidebarWorkspaces,
+  migrateSidebarWorkspaceOrder,
   moveSidebarWorkspace,
   orderSidebarWorkspaces,
-  sidebarWorkspaceKey,
 } from "./Sidebar.workspaceTree";
 import {
   SIDEBAR_WORKSPACE_LONG_PRESS_MS,
@@ -143,7 +143,10 @@ import { isMacPlatform } from "~/lib/utils";
 import { useOpenPrLink } from "../lib/openPullRequestLink";
 import { readLocalApi } from "../localApi";
 import { useSidebarPendingFileDropStore } from "../sidebarPendingFileDropStore";
-import { selectProjectGroupingSettings } from "../logicalProject";
+import {
+  deriveLogicalProjectKeyFromSettings,
+  selectProjectGroupingSettings,
+} from "../logicalProject";
 import {
   projectGroupsSpanEnvironments,
   resolveSidebarProjectScopeKey,
@@ -2753,36 +2756,44 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
 
 const NO_WORKSPACE_REORDER_ITEMS: readonly SidebarWorkspaceReorderItem[] = [];
 
+type SidebarWorkspace = {
+  readonly key: string;
+  readonly label: string;
+  readonly project: ProjectFaviconProject;
+};
+
 // One entry per workspace folder in display order. Pinned rows keep their own
 // order, so they are not offered for reordering.
 function buildSidebarWorkspaceReorderItems(input: {
   listItems: readonly SidebarListItem[];
   threadByKey: ReadonlyMap<string, EnvironmentThreadShell>;
-  workspaceRootOf: (thread: EnvironmentThreadShell) => string | null;
+  workspaceOf: (thread: EnvironmentThreadShell) => SidebarWorkspace | null;
   environmentLabelOf: (environmentId: EnvironmentThreadShell["environmentId"]) => string | null;
-  projectOf: (
-    environmentId: EnvironmentThreadShell["environmentId"],
-    projectId: EnvironmentThreadShell["projectId"],
-  ) => ProjectFaviconProject | null;
 }): readonly SidebarWorkspaceReorderItem[] {
-  const byKey = new Map<string, { thread: EnvironmentThreadShell; path: string; count: number }>();
+  const byKey = new Map<
+    string,
+    { label: string; environmentLabels: Set<string>; sessions: ProjectFaviconProject[] }
+  >();
   for (const item of input.listItems) {
     if (item.kind !== "thread" || item.section === "pinned") continue;
     const thread = input.threadByKey.get(item.key);
-    if (!thread) continue;
-    const key = sidebarWorkspaceKey(thread, input.workspaceRootOf);
-    const path = thread.worktreePath ?? input.workspaceRootOf(thread);
-    if (key === null || path === null) continue;
-    const existing = byKey.get(key);
-    if (existing) existing.count += 1;
-    else byKey.set(key, { thread, path, count: 1 });
+    const workspace = thread ? input.workspaceOf(thread) : null;
+    if (!thread || workspace === null) continue;
+    const entry = byKey.get(workspace.key) ?? {
+      label: workspace.label,
+      environmentLabels: new Set<string>(),
+      sessions: [],
+    };
+    const environmentLabel = input.environmentLabelOf(thread.environmentId);
+    if (environmentLabel !== null) entry.environmentLabels.add(environmentLabel);
+    entry.sessions.push(workspace.project);
+    byKey.set(workspace.key, entry);
   }
   return [...byKey].map(([key, entry]) => ({
     key,
-    path: entry.path,
-    environmentLabel: input.environmentLabelOf(entry.thread.environmentId),
-    threadCount: entry.count,
-    project: input.projectOf(entry.thread.environmentId, entry.thread.projectId),
+    label: entry.label,
+    environmentLabel: [...entry.environmentLabels].join(", ") || null,
+    sessions: entry.sessions,
   }));
 }
 
@@ -3704,18 +3715,39 @@ export default function Sidebar() {
         event.activatorEvent instanceof PointerEvent ? event.activatorEvent.clientY : null,
     });
   };
-  const workspaceRootOf = (thread: EnvironmentThreadShell) =>
-    projectByKey.get(`${thread.environmentId}:${thread.projectId}`)?.workspaceRoot ?? null;
+  // Folders follow the sidebar's project grouping, so checkouts of one
+  // repository share a folder across environments and worktrees.
+  const workspaceByProject = new Map<string, SidebarWorkspace>(
+    projects.map((project) => [
+      `${project.environmentId}:${project.id}`,
+      {
+        key: deriveLogicalProjectKeyFromSettings(project, projectGroupingSettings),
+        label: project.isScratch
+          ? sidebarWorkspaceLabel(project.workspaceRoot)
+          : (projectDisplayNameByKey.get(`${project.environmentId}:${project.id}`) ??
+            project.title),
+        project,
+      },
+    ]),
+  );
+  const workspaceOf = (thread: EnvironmentThreadShell) =>
+    workspaceByProject.get(`${thread.environmentId}:${thread.projectId}`) ?? null;
+  const workspaceKeyOf = (thread: EnvironmentThreadShell) => workspaceOf(thread)?.key ?? null;
+  const savedWorkspaceOrder = migrateSidebarWorkspaceOrder(
+    workspaceOrder,
+    (environmentId, projectId) =>
+      workspaceByProject.get(`${environmentId}:${projectId}`)?.key ?? null,
+  );
   const sidebarListItemsFresh = ((): readonly SidebarListItem[] => {
     const rowsOf = (
       list: readonly EnvironmentThreadShell[],
       section: SidebarSection,
     ): SidebarListItem[] =>
       orderSidebarWorkspaces(
-        groupSidebarWorkspaces(list, workspaceRootOf),
+        groupSidebarWorkspaces(list, workspaceKeyOf),
         // Pinned rows already follow the order the user pinned and dragged them in.
-        section === "pinned" ? [] : workspaceOrder,
-        (group) => sidebarWorkspaceKey(group[0]!, workspaceRootOf),
+        section === "pinned" ? [] : savedWorkspaceOrder,
+        (group) => workspaceKeyOf(group[0]!),
       )
         .flat()
         .map((thread) => {
@@ -3777,10 +3809,8 @@ export default function Sidebar() {
       ? buildSidebarWorkspaceReorderItems({
           listItems: sidebarListItems,
           threadByKey,
-          workspaceRootOf,
+          workspaceOf,
           environmentLabelOf: (environmentId) => environmentLabelById.get(environmentId) ?? null,
-          projectOf: (environmentId, projectId) =>
-            projectByKey.get(`${environmentId}:${projectId}`) ?? null,
         })
       : NO_WORKSPACE_REORDER_ITEMS;
 
@@ -4963,7 +4993,7 @@ export default function Sidebar() {
               onMove={(activeKey, overKey) =>
                 updateClientSettings({
                   sidebarWorkspaceOrder: moveSidebarWorkspace(
-                    workspaceOrder,
+                    savedWorkspaceOrder,
                     workspaceReorderItems.map((item) => item.key),
                     activeKey,
                     overKey,
@@ -5130,7 +5160,7 @@ export default function Sidebar() {
                       ];
                       const workspaceRows = new Map<
                         string,
-                        { path: string; first: boolean; last: boolean }
+                        { label: string; locations: string; first: boolean; last: boolean }
                       >();
                       for (const section of [
                         "pinned",
@@ -5148,25 +5178,30 @@ export default function Sidebar() {
                         });
                         for (const group of groupSidebarWorkspaces(
                           sectionThreads,
-                          (thread) =>
-                            projectByKey.get(`${thread.environmentId}:${thread.projectId}`)
-                              ?.workspaceRoot ?? null,
+                          workspaceKeyOf,
                         )) {
-                          if (group.length < 2) continue;
+                          const workspace = workspaceOf(group[0]!);
+                          if (group.length < 2 || workspace === null) continue;
+                          const locations = new Set(
+                            group.map((thread) => {
+                              const path =
+                                thread.worktreePath ??
+                                projectByKey.get(`${thread.environmentId}:${thread.projectId}`)
+                                  ?.workspaceRoot;
+                              const environment = environmentLabelById.get(thread.environmentId);
+                              return environment ? `${environment}: ${path}` : `${path}`;
+                            }),
+                          );
                           group.forEach((thread, index) => {
-                            const path =
-                              thread.worktreePath ??
-                              projectByKey.get(`${thread.environmentId}:${thread.projectId}`)
-                                ?.workspaceRoot;
-                            if (path)
-                              workspaceRows.set(
-                                scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-                                {
-                                  path,
-                                  first: index === 0,
-                                  last: index === group.length - 1,
-                                },
-                              );
+                            workspaceRows.set(
+                              scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+                              {
+                                label: workspace.label,
+                                locations: [...locations].join("\n"),
+                                first: index === 0,
+                                last: index === group.length - 1,
+                              },
+                            );
                           });
                         }
                       }
@@ -5181,20 +5216,19 @@ export default function Sidebar() {
                                 className="min-w-0 origin-left cursor-default truncate px-2.5 pt-2 pb-1 text-xs text-secondary-label select-none"
                                 onPointerDown={(event) => {
                                   const thread = threadByKey.get(item.key);
-                                  const key = thread
-                                    ? sidebarWorkspaceKey(thread, workspaceRootOf)
-                                    : null;
+                                  const key = thread ? workspaceKeyOf(thread) : null;
                                   if (key !== null) startWorkspaceLongPress(event, key);
                                 }}
                               >
                                 <Tooltip>
                                   <TooltipTrigger render={<span className="block truncate" />}>
-                                    <MiddleTruncate
-                                      value={sidebarWorkspaceLabel(workspace.path)}
-                                      showTitle={false}
-                                    />
+                                    <MiddleTruncate value={workspace.label} showTitle={false} />
                                   </TooltipTrigger>
-                                  <TooltipPopup side="right">{workspace.path}</TooltipPopup>
+                                  <TooltipPopup side="right">
+                                    <span className="whitespace-pre-line">
+                                      {workspace.locations}
+                                    </span>
+                                  </TooltipPopup>
                                 </Tooltip>
                               </li>,
                             );

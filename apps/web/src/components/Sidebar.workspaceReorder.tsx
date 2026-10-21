@@ -23,10 +23,10 @@ import { MiddleTruncate } from "./ui/middle-truncate";
 
 export type SidebarWorkspaceReorderItem = {
   readonly key: string;
-  readonly path: string;
+  readonly label: string;
   readonly environmentLabel: string | null;
-  readonly threadCount: number;
-  readonly project: ProjectFaviconProject | null;
+  /** One project per thread in the folder, so each icon shows that thread's environment. */
+  readonly sessions: readonly ProjectFaviconProject[];
 };
 
 /** A long press that is still held when the reorder list mounts. */
@@ -90,31 +90,28 @@ export function foldSidebarThreadRows(list: HTMLElement | null): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, SIDEBAR_WORKSPACE_FOLD_MS));
 }
 
-function SessionStack(props: { project: ProjectFaviconProject | null; count: number }) {
-  const shown = Math.min(props.count, SESSION_STACK_LIMIT);
+function SessionStack(props: { sessions: readonly ProjectFaviconProject[] }) {
+  const count = props.sessions.length;
+  const shown = props.sessions.slice(0, SESSION_STACK_LIMIT);
   return (
     <span
       className="flex shrink-0 items-center"
-      aria-label={`${props.count} ${props.count === 1 ? "session" : "sessions"}`}
+      aria-label={`${count} ${count === 1 ? "session" : "sessions"}`}
     >
-      {Array.from({ length: shown }, (_, index) => (
+      {Array.from({ length: shown.length }, (_, index) => (
         <span
           key={index}
           aria-hidden
           // Each icon tucks under the previous one, so the stack's length reads as the count.
           className="-ml-1.5 flex size-5 items-center justify-center rounded-full bg-sidebar ring-2 ring-sidebar first:ml-0"
-          style={{ zIndex: shown - index }}
+          style={{ zIndex: shown.length - index }}
         >
-          {props.project ? (
-            <ProjectFavicon project={props.project} className="size-3.5" />
-          ) : (
-            <span className="size-2 rounded-full bg-sidebar-muted-foreground" />
-          )}
+          <ProjectFavicon project={shown[index]!} className="size-3.5" />
         </span>
       ))}
-      {props.count > shown ? (
+      {count > shown.length ? (
         <span className="ml-1 text-2xs tabular-nums text-secondary-label">
-          +{props.count - shown}
+          +{count - shown.length}
         </span>
       ) : null}
     </span>
@@ -143,7 +140,7 @@ function SortableWorkspace(props: { item: SidebarWorkspaceReorderItem }) {
       <GripVerticalIcon className="size-4 shrink-0 text-sidebar-muted-foreground" />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-medium">
-          <MiddleTruncate value={sidebarWorkspaceLabel(props.item.path)} showTitle={false} />
+          <MiddleTruncate value={props.item.label} showTitle={false} />
         </span>
         {props.item.environmentLabel ? (
           <span className="block truncate text-2xs text-secondary-label">
@@ -151,7 +148,7 @@ function SortableWorkspace(props: { item: SidebarWorkspaceReorderItem }) {
           </span>
         ) : null}
       </span>
-      <SessionStack project={props.item.project} count={props.item.threadCount} />
+      <SessionStack sessions={props.item.sessions} />
     </li>
   );
 }

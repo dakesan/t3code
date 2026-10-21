@@ -1,28 +1,15 @@
-type WorkspaceThread = {
-  readonly environmentId: string;
-  readonly projectId: string;
-  readonly worktreePath: string | null;
-};
-
-/** The identity of a thread's workspace, or null when its path is unknown. */
-export function sidebarWorkspaceKey<T extends WorkspaceThread>(
-  thread: T,
-  projectRoot: (thread: T) => string | null,
-): string | null {
-  const path = thread.worktreePath ?? projectRoot(thread);
-  // An unknown path cannot establish that two threads share a workspace.
-  return path === null ? null : JSON.stringify([thread.environmentId, thread.projectId, path]);
-}
-
-/** Group an already sorted shelf without merging different environments or projects. */
-export function groupSidebarWorkspaces<T extends WorkspaceThread>(
+/**
+ * Group an already sorted shelf by workspace key, collecting each group at its
+ * first thread. Threads without a key stay on their own.
+ */
+export function groupSidebarWorkspaces<T>(
   threads: readonly T[],
-  projectRoot: (thread: T) => string | null,
+  keyOf: (thread: T) => string | null,
 ): T[][] {
   const groups: T[][] = [];
   const byWorkspace = new Map<string, T[]>();
   for (const thread of threads) {
-    const key = sidebarWorkspaceKey(thread, projectRoot);
+    const key = keyOf(thread);
     const existing = key === null ? undefined : byWorkspace.get(key);
     if (existing) existing.push(thread);
     else {
@@ -32,6 +19,42 @@ export function groupSidebarWorkspaces<T extends WorkspaceThread>(
     }
   }
   return groups;
+}
+
+/**
+ * Rewrite saved keys from the earlier per-checkout format, a JSON array of
+ * environment, project and path, to the current workspace key. A key that no
+ * longer resolves is kept, so the saved place returns when its project does.
+ */
+export function migrateSidebarWorkspaceOrder(
+  order: readonly string[],
+  keyOfProject: (environmentId: string, projectId: string) => string | null,
+): string[] {
+  const migrated: string[] = [];
+  const seen = new Set<string>();
+  for (const saved of order) {
+    const key = saved.startsWith("[") ? (legacyWorkspaceKey(saved, keyOfProject) ?? saved) : saved;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    migrated.push(key);
+  }
+  return migrated;
+}
+
+function legacyWorkspaceKey(
+  saved: string,
+  keyOfProject: (environmentId: string, projectId: string) => string | null,
+): string | null {
+  try {
+    const parsed: unknown = JSON.parse(saved);
+    if (!Array.isArray(parsed)) return null;
+    const [environmentId, projectId] = parsed;
+    return typeof environmentId === "string" && typeof projectId === "string"
+      ? keyOfProject(environmentId, projectId)
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
