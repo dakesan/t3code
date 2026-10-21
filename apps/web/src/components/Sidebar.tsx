@@ -1,4 +1,16 @@
-import { groupSidebarWorkspaces } from "./Sidebar.workspaceTree";
+import {
+  groupSidebarWorkspaces,
+  moveSidebarWorkspace,
+  orderSidebarWorkspaces,
+  sidebarWorkspaceKey,
+} from "./Sidebar.workspaceTree";
+import {
+  SIDEBAR_WORKSPACE_LONG_PRESS_MS,
+  SidebarWorkspaceReorderList,
+  foldSidebarThreadRows,
+  sidebarWorkspaceLabel,
+  type SidebarWorkspaceReorderItem,
+} from "./Sidebar.workspaceReorder";
 import { type EnvironmentId, type ScopedProjectRef } from "@t3tools/contracts";
 import type { EnvironmentServerConfig } from "@t3tools/client-runtime/connection";
 import { ThreadHoverCard, ThreadHoverCardPopup } from "./ThreadHoverCard";
@@ -148,7 +160,7 @@ import { useTerminalFocus } from "../hooks/useTerminalFocus";
 import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
 import { registerSettleAndAdvance } from "../settleAndAdvance";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
-import { useClientSettings } from "../hooks/useSettings";
+import { updateClientSettings, useClientSettings } from "../hooks/useSettings";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useLocalStorage } from "../hooks/useLocalStorage";
 import { useNowMinute } from "../hooks/useNowMinute";
@@ -2756,6 +2768,7 @@ export default function Sidebar() {
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
   const timestampFormat = useClientSettings((s) => s.timestampFormat);
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
+  const workspaceOrder = useClientSettings((s) => s.sidebarWorkspaceOrder);
   const {
     settleThread,
     unsettleThread,
@@ -2872,6 +2885,39 @@ export default function Sidebar() {
   const [renamingTitle, setRenamingTitle] = useState("");
   const settlingThreadKeysRef = useRef(new Set<string>());
   const threadListRef = useRef<HTMLUListElement | null>(null);
+  // Holding a workspace header folds the thread rows away ("folding"), then
+  // swaps the list for a reorderable list of workspace folders ("on").
+  const [workspaceReorder, setWorkspaceReorder] = useState<"off" | "folding" | "on">("off");
+  const workspaceLongPressRef = useRef<{ timer: number; x: number; y: number } | null>(null);
+  const cancelWorkspaceLongPress = () => {
+    const press = workspaceLongPressRef.current;
+    if (press === null) return;
+    window.clearTimeout(press.timer);
+    workspaceLongPressRef.current = null;
+  };
+  const startWorkspaceLongPress = (event: ReactPointerEvent) => {
+    if (event.button !== 0 || workspaceReorder !== "off") return;
+    cancelWorkspaceLongPress();
+    const timer = window.setTimeout(() => {
+      workspaceLongPressRef.current = null;
+      setWorkspaceReorder("folding");
+      void foldSidebarThreadRows(threadListRef.current).then(() => setWorkspaceReorder("on"));
+    }, SIDEBAR_WORKSPACE_LONG_PRESS_MS);
+    workspaceLongPressRef.current = { timer, x: event.clientX, y: event.clientY };
+  };
+  const moveWorkspaceLongPress = (event: ReactPointerEvent) => {
+    const press = workspaceLongPressRef.current;
+    if (press !== null && Math.hypot(event.clientX - press.x, event.clientY - press.y) > 6) {
+      cancelWorkspaceLongPress();
+    }
+  };
+  useEffect(
+    () => () => {
+      const press = workspaceLongPressRef.current;
+      if (press !== null) window.clearTimeout(press.timer);
+    },
+    [],
+  );
   const dragLabelOffsetRef = useRef(0);
   const listMotionRef = useRef<ReturnType<typeof createSidebarListMotion> | null>(null);
   const [dragState, setDragState] = useState<{
@@ -3574,15 +3620,18 @@ export default function Sidebar() {
         event.activatorEvent instanceof PointerEvent ? event.activatorEvent.clientY : null,
     });
   };
+  const workspaceRootOf = (thread: EnvironmentThreadShell) =>
+    projectByKey.get(`${thread.environmentId}:${thread.projectId}`)?.workspaceRoot ?? null;
   const sidebarListItemsFresh = ((): readonly SidebarListItem[] => {
     const rowsOf = (
       list: readonly EnvironmentThreadShell[],
       section: SidebarSection,
     ): SidebarListItem[] =>
-      groupSidebarWorkspaces(
-        list,
-        (thread) =>
-          projectByKey.get(`${thread.environmentId}:${thread.projectId}`)?.workspaceRoot ?? null,
+      orderSidebarWorkspaces(
+        groupSidebarWorkspaces(list, workspaceRootOf),
+        // Pinned rows already follow the order the user pinned and dragged them in.
+        section === "pinned" ? [] : workspaceOrder,
+        (group) => sidebarWorkspaceKey(group[0]!, workspaceRootOf),
       )
         .flat()
         .map((thread) => {
@@ -3637,6 +3686,31 @@ export default function Sidebar() {
     // into the collapsed Settled shelf.
     sidebarListItems = sidebarListItemsFresh;
   }
+  // One entry per workspace folder in display order. Pinned rows keep their own
+  // order, so they are not offered for reordering.
+  const workspaceReorderItems = (): SidebarWorkspaceReorderItem[] => {
+    const byKey = new Map<
+      string,
+      { path: string; environmentId: EnvironmentThreadShell["environmentId"]; threadCount: number }
+    >();
+    for (const item of sidebarListItems) {
+      if (item.kind !== "thread" || item.section === "pinned") continue;
+      const thread = threadByKey.get(item.key);
+      if (!thread) continue;
+      const key = sidebarWorkspaceKey(thread, workspaceRootOf);
+      const path = thread.worktreePath ?? workspaceRootOf(thread);
+      if (key === null || path === null) continue;
+      const existing = byKey.get(key);
+      if (existing) existing.threadCount += 1;
+      else byKey.set(key, { path, environmentId: thread.environmentId, threadCount: 1 });
+    }
+    return [...byKey].map(([key, entry]) => ({
+      key,
+      path: entry.path,
+      environmentLabel: environmentLabelById.get(entry.environmentId) ?? null,
+      threadCount: entry.threadCount,
+    }));
+  };
   useEffect(() => {
     if (
       dragState !== null &&
@@ -4810,7 +4884,22 @@ export default function Sidebar() {
               </p>
             )
           ) : null}
-          {!isSearchingThreads ? (
+          {!isSearchingThreads && workspaceReorder === "on" ? (
+            <SidebarWorkspaceReorderList
+              items={workspaceReorderItems()}
+              onMove={(activeKey, overKey) =>
+                updateClientSettings({
+                  sidebarWorkspaceOrder: moveSidebarWorkspace(
+                    workspaceOrder,
+                    workspaceReorderItems().map((item) => item.key),
+                    activeKey,
+                    overKey,
+                  ),
+                })
+              }
+              onDone={() => setWorkspaceReorder("off")}
+            />
+          ) : !isSearchingThreads ? (
             <TooltipProvider
               key="sidebar-thread-tooltips-150"
               delay={150}
@@ -5014,16 +5103,18 @@ export default function Sidebar() {
                             items.push(
                               <li
                                 key={`workspace:${item.key}`}
-                                className="min-w-0 truncate px-2.5 pt-2 pb-1 text-xs text-secondary-label"
+                                data-workspace-header
+                                className="min-w-0 origin-left cursor-default truncate px-2.5 pt-2 pb-1 text-xs text-secondary-label select-none"
+                                onPointerDown={startWorkspaceLongPress}
+                                onPointerMove={moveWorkspaceLongPress}
+                                onPointerUp={cancelWorkspaceLongPress}
+                                onPointerLeave={cancelWorkspaceLongPress}
+                                onPointerCancel={cancelWorkspaceLongPress}
                               >
                                 <Tooltip>
                                   <TooltipTrigger render={<span className="block truncate" />}>
                                     <MiddleTruncate
-                                      value={workspace.path
-                                        .split(/[\\/]/)
-                                        .filter(Boolean)
-                                        .slice(-2)
-                                        .join("/")}
+                                      value={sidebarWorkspaceLabel(workspace.path)}
                                       showTitle={false}
                                     />
                                   </TooltipTrigger>

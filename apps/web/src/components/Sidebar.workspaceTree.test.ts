@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
-import { groupSidebarWorkspaces } from "./Sidebar.workspaceTree";
+import {
+  groupSidebarWorkspaces,
+  moveSidebarWorkspace,
+  orderSidebarWorkspaces,
+} from "./Sidebar.workspaceTree";
 
 type FixtureThread = {
   id: string;
@@ -58,5 +62,38 @@ describe("groupSidebarWorkspaces", () => {
     const before = structuredClone(input);
     group(input);
     expect(input).toEqual(before);
+  });
+});
+
+describe("orderSidebarWorkspaces", () => {
+  const keyOf = (group: string) => group;
+  it("keeps unplaced groups first in incoming order, then placed groups by saved rank", () => {
+    expect(orderSidebarWorkspaces(["new", "b", "a", "newer"], ["a", "b"], keyOf)).toEqual([
+      "new",
+      "newer",
+      "a",
+      "b",
+    ]);
+  });
+  it("leaves groups without a key where unplaced groups go", () => {
+    expect(orderSidebarWorkspaces<string | null>(["a", null], ["a"], (group) => group)).toEqual([
+      null,
+      "a",
+    ]);
+  });
+});
+
+describe("moveSidebarWorkspace", () => {
+  it("writes the visible order and keeps hidden saved keys after it", () => {
+    expect(moveSidebarWorkspace(["hidden", "a"], ["a", "b", "c"], "c", "a")).toEqual([
+      "c",
+      "a",
+      "b",
+      "hidden",
+    ]);
+  });
+  it("returns the saved order unchanged for a drop in place or an unknown key", () => {
+    expect(moveSidebarWorkspace(["a"], ["a", "b"], "a", "a")).toEqual(["a"]);
+    expect(moveSidebarWorkspace(["a"], ["a", "b"], "x", "a")).toEqual(["a"]);
   });
 });
