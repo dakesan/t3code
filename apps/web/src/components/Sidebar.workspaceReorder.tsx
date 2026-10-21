@@ -74,15 +74,29 @@ export function foldSidebarThreadRows(list: HTMLElement | null): Promise<void> {
         );
         continue;
       }
-      const height = child.getBoundingClientRect().height;
+      // The row's card carries the frame, so it shrinks itself instead of being
+      // clipped by the row: its border and rounded corners stay whole. The row
+      // loses its padding in step, so the card always fits inside it.
+      const style = getComputedStyle(child);
+      const rowKeyframes: Keyframe[] = [
+        {
+          height: `${child.getBoundingClientRect().height}px`,
+          paddingTop: style.paddingTop,
+          paddingBottom: style.paddingBottom,
+          opacity: 1,
+        },
+        { height: "0px", paddingTop: "0px", paddingBottom: "0px", opacity: 0 },
+      ];
       child.style.overflow = "hidden";
-      child.animate(
-        [
-          { height: `${height}px`, opacity: 1 },
-          { height: "0px", opacity: 0 },
-        ],
-        timing,
-      );
+      child.animate(rowKeyframes, timing);
+      for (const card of child.children) {
+        if (!(card instanceof HTMLElement)) continue;
+        card.style.overflow = "hidden";
+        card.animate(
+          [{ height: `${card.getBoundingClientRect().height}px` }, { height: "0px" }],
+          timing,
+        );
+      }
     }
   }
   return new Promise((resolve) => window.setTimeout(resolve, SIDEBAR_WORKSPACE_FOLD_MS));
