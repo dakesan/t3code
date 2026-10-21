@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vite-plus/test";
+import { userEvent } from "vite-plus/test/browser";
 import { act, render } from "../../test/render";
 import {
   SidebarWorkspaceReorderList,
@@ -32,7 +33,7 @@ describe("SidebarWorkspaceReorderList", () => {
         items={items}
         onMove={onMove}
         onDone={() => {}}
-        takeDragHandoff={() => ({ key: "c", pointerId: 1 })}
+        takeEntry={() => ({ kind: "press", key: "c", pointerId: 1 })}
       />,
     );
     const centerOf = (key: string) => {
@@ -52,5 +53,37 @@ describe("SidebarWorkspaceReorderList", () => {
     expect(centerOf("c")).toBeCloseTo(topY, 0);
     await act(() => document.dispatchEvent(pointer("pointerup", topY, 0)));
     expect(onMove).toHaveBeenCalledExactlyOnceWith("c", "a");
+  });
+
+  it("lifts, moves and drops a focused folder with the keyboard, then closes", async () => {
+    const onMove = vi.fn();
+    const onDone = vi.fn();
+    await using screen = await render(
+      <SidebarWorkspaceReorderList
+        items={items}
+        onMove={onMove}
+        onDone={onDone}
+        takeEntry={() => ({ kind: "focus", key: "c" })}
+      />,
+    );
+    const row = screen.container.querySelector<HTMLElement>('[data-workspace-key="c"]')!;
+    expect(document.activeElement).toBe(row);
+    await userEvent.keyboard(" ");
+    await userEvent.keyboard("{ArrowUp}");
+    await userEvent.keyboard(" ");
+    expect(onMove).toHaveBeenCalledExactlyOnceWith("c", "b");
+    expect(onDone).toHaveBeenCalled();
+  });
+
+  it("focuses the first folder when the requested one is not listed", async () => {
+    await using screen = await render(
+      <SidebarWorkspaceReorderList
+        items={items}
+        onMove={() => {}}
+        onDone={() => {}}
+        takeEntry={() => ({ kind: "focus", key: null })}
+      />,
+    );
+    expect(document.activeElement).toBe(screen.container.querySelector('[data-workspace-key="a"]'));
   });
 });

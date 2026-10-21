@@ -221,6 +221,17 @@ describe("buildThreadActionMenuItems", () => {
     );
     expect(archiveItem?.disabled).toBe(true);
   });
+
+  it("offers folder reordering only when the sidebar allows it, even without operate scope", () => {
+    expect(ids(baseState)).not.toContain("reorder-folders");
+    expect(ids({ ...baseState, canReorderFolders: false })).not.toContain("reorder-folders");
+    const items = buildThreadActionMenuItems({
+      ...baseState,
+      canOperate: false,
+      canReorderFolders: true,
+    });
+    expect(items.find((item) => item.id === "reorder-folders")?.disabled).toBeUndefined();
+  });
 });
 
 describe("buildDraftActionMenuItems", () => {

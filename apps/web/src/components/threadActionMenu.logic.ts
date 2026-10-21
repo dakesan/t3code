@@ -4,6 +4,7 @@ import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled"
 export type ThreadActionMenuId =
   | "new-thread-on-branch"
   | "filter-by-project"
+  | "reorder-folders"
   | "project-settings"
   | "pin"
   | "unpin"
@@ -78,6 +79,8 @@ export interface ThreadActionMenuState {
   readonly isRegeneratingTitle: boolean;
   /** Archive rejects a thread with an attached provider, so disable it here rather than let the action fail. */
   readonly isRunning: boolean;
+  /** Only the sidebar passes this; it is the only surface that has folders to reorder. */
+  readonly canReorderFolders?: boolean;
   readonly supports: {
     readonly settlement: boolean;
     readonly autoSettleOptOut: boolean;
@@ -92,6 +95,7 @@ export interface ThreadActionMenuState {
 export function threadActionRequiresOperate(action: ThreadActionMenuId): boolean {
   return ![
     "new-thread-on-branch",
+    "reorder-folders",
     "project-settings",
     "mark-unread",
     "copy",
@@ -169,6 +173,9 @@ export function buildThreadActionMenuItems(
             icon: "folder-tree",
           },
         ]
+      : []),
+    ...(state.canReorderFolders
+      ? [{ id: "reorder-folders" as const, label: "Reorder folders", icon: "folder-tree" }]
       : []),
     ...(state.supports.autoSettleOptOut
       ? [

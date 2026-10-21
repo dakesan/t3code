@@ -10,7 +10,7 @@ import {
   SIDEBAR_WORKSPACE_LONG_PRESS_MS,
   SIDEBAR_WORKSPACE_PRESS_SLOP_PX,
   SidebarWorkspaceReorderList,
-  type SidebarWorkspaceDragHandoff,
+  type SidebarWorkspaceReorderEntry,
   foldSidebarThreadRows,
   sidebarWorkspaceLabel,
   type SidebarWorkspaceReorderItem,
@@ -1812,6 +1812,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   };
   const handleKeyDown = (event: ReactKeyboardEvent) => {
     if (event.target !== event.currentTarget) return;
+    if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+      event.preventDefault();
+      const rect = event.currentTarget.getBoundingClientRect();
+      onContextMenu(threadRef, { x: rect.left, y: rect.bottom });
+      return;
+    }
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
     onThreadActivate(threadRef);
@@ -2949,6 +2955,17 @@ export default function Sidebar() {
     press.dispose();
     workspacePressRef.current = null;
   };
+  const foldIntoWorkspaceReorder = () => {
+    setWorkspaceReorder("folding");
+    void foldSidebarThreadRows(threadListRef.current).then(() => setWorkspaceReorder("on"));
+  };
+  // Opens the reorder list with no held pointer, for the context menu.
+  const startWorkspaceReorderFromMenu = (key: string | null) => {
+    if (workspaceReorder !== "off" || !canReorderWorkspaces) return;
+    endWorkspacePress();
+    workspaceFocusEntryRef.current = { kind: "focus", key };
+    foldIntoWorkspaceReorder();
+  };
   const startWorkspaceLongPress = (event: ReactPointerEvent, key: string) => {
     if (event.button !== 0 || workspaceReorder !== "off" || !canReorderWorkspaces) return;
     endWorkspacePress();
@@ -2969,8 +2986,7 @@ export default function Sidebar() {
     const timer = window.setTimeout(() => {
       const press = workspacePressRef.current;
       if (press !== null) press.timer = null;
-      setWorkspaceReorder("folding");
-      void foldSidebarThreadRows(threadListRef.current).then(() => setWorkspaceReorder("on"));
+      foldIntoWorkspaceReorder();
     }, SIDEBAR_WORKSPACE_LONG_PRESS_MS);
     workspacePressRef.current = {
       key,
@@ -2985,13 +3001,20 @@ export default function Sidebar() {
       },
     };
   };
-  // Hands the still-held long press to the reorder list, once.
-  const takeWorkspaceDragHandoff = (): SidebarWorkspaceDragHandoff | null => {
+  const workspaceFocusEntryRef = useRef<SidebarWorkspaceReorderEntry | null>(null);
+  // Hands the reorder list how it was opened, once: the menu's focus request,
+  // or the still-held long press.
+  const takeWorkspaceReorderEntry = (): SidebarWorkspaceReorderEntry | null => {
+    const focusEntry = workspaceFocusEntryRef.current;
+    if (focusEntry !== null) {
+      workspaceFocusEntryRef.current = null;
+      return focusEntry;
+    }
     const press = workspacePressRef.current;
     if (press === null || press.timer !== null) return null;
-    const handoff = { key: press.key, pointerId: press.pointerId };
+    const entry = { kind: "press" as const, key: press.key, pointerId: press.pointerId };
     endWorkspacePress();
-    return handoff;
+    return entry;
   };
   useEffect(
     () => () => {
@@ -4496,6 +4519,7 @@ export default function Sidebar() {
                 titleRegeneration: supportsTitleRegeneration,
               },
               snoozePresets,
+              canReorderFolders: canReorderWorkspaces,
             }),
             position,
           ),
@@ -4519,6 +4543,9 @@ export default function Sidebar() {
                   : threadProjectGroup.projectKey,
               );
             }
+            return;
+          case "reorder-folders":
+            startWorkspaceReorderFromMenu(workspaceKeyOf(thread));
             return;
           case "project-settings":
             if (threadProjectGroup)
@@ -5019,7 +5046,7 @@ export default function Sidebar() {
                 })
               }
               onDone={() => setWorkspaceReorder("off")}
-              takeDragHandoff={takeWorkspaceDragHandoff}
+              takeEntry={takeWorkspaceReorderEntry}
             />
           ) : !isSearchingThreads ? (
             <TooltipProvider

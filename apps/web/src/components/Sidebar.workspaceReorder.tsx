@@ -29,11 +29,15 @@ export type SidebarWorkspaceReorderItem = {
   readonly sessions: readonly ProjectFaviconProject[];
 };
 
-/** A long press that is still held when the reorder list mounts. */
-export type SidebarWorkspaceDragHandoff = {
-  readonly key: string;
-  readonly pointerId: number;
-};
+/**
+ * How the reorder list was opened. A "press" is a long press that is still
+ * held, which becomes a drag of that folder. A "focus" has no pointer, so it
+ * focuses a folder's row for a keyboard user to lift; a null key, or a folder
+ * that is not in the list, focuses the first row.
+ */
+export type SidebarWorkspaceReorderEntry =
+  | { readonly kind: "press"; readonly key: string; readonly pointerId: number }
+  | { readonly kind: "focus"; readonly key: string | null };
 
 /** How long a workspace header must be held before the sidebar folds into reorder mode. */
 export const SIDEBAR_WORKSPACE_LONG_PRESS_MS = 450;
@@ -172,22 +176,27 @@ export function SidebarWorkspaceReorderList(props: {
   items: readonly SidebarWorkspaceReorderItem[];
   onMove: (activeKey: string, overKey: string) => void;
   onDone: () => void;
-  takeDragHandoff: () => SidebarWorkspaceDragHandoff | null;
+  takeEntry: () => SidebarWorkspaceReorderEntry | null;
 }) {
   const { onDone } = props;
   const listRef = useRef<HTMLUListElement | null>(null);
-  const takeDragHandoff = useEffectEvent(() => props.takeDragHandoff());
-  // When the long press is still held, start the drag on the folder that was
-  // pressed, so holding and dragging is one gesture. The real pointer keeps
-  // sending moves, so dnd-kit only needs the press it missed. The press lands
-  // on the folder's row, not where its header was, because dnd-kit moves the
-  // folder by the pointer's offset from the press.
+  const takeEntry = useEffectEvent(() => props.takeEntry());
+  // A press that is still held starts the drag on the folder that was pressed,
+  // so holding and dragging is one gesture. The real pointer keeps sending
+  // moves, so dnd-kit only needs the press it missed. The press lands on the
+  // folder's row, not where its header was, because dnd-kit moves the folder
+  // by the pointer's offset from the press.
   useLayoutEffect(() => {
-    const handoff = takeDragHandoff();
-    if (handoff === null) return;
-    const target = [...(listRef.current?.children ?? [])].find(
-      (child) => child instanceof HTMLElement && child.dataset.workspaceKey === handoff.key,
+    const entry = takeEntry();
+    if (entry === null) return;
+    const rows = [...(listRef.current?.children ?? [])].filter(
+      (child): child is HTMLElement => child instanceof HTMLElement,
     );
+    const target = rows.find((row) => row.dataset.workspaceKey === entry.key);
+    if (entry.kind === "focus") {
+      (target ?? rows[0])?.focus();
+      return;
+    }
     if (target === undefined) return;
     const rect = target.getBoundingClientRect();
     target.dispatchEvent(
@@ -198,7 +207,7 @@ export function SidebarWorkspaceReorderList(props: {
         clientY: rect.top + rect.height / 2,
         button: 0,
         buttons: 1,
-        pointerId: handoff.pointerId,
+        pointerId: entry.pointerId,
         pointerType: "mouse",
         isPrimary: true,
       }),
@@ -208,7 +217,8 @@ export function SidebarWorkspaceReorderList(props: {
     useSensor(PointerSensor, { activationConstraint: { distance: 2 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
-  // Releasing the held press applies the order and returns to the threads.
+  // Releasing the held press, or dropping with the keyboard, applies the order
+  // and returns to the threads.
   // dnd-kit handles the release on document first, so a drop is saved before
   // this listener on window closes the list.
   useEffect(() => {
@@ -227,6 +237,7 @@ export function SidebarWorkspaceReorderList(props: {
     if (event.over && event.active.id !== event.over.id) {
       props.onMove(String(event.active.id), String(event.over.id));
     }
+    onDone();
   };
   return (
     <div className="flex min-h-0 flex-col gap-1 px-2 pt-1" data-testid="sidebar-workspace-reorder">
@@ -236,6 +247,7 @@ export function SidebarWorkspaceReorderList(props: {
         collisionDetection={closestCenter}
         modifiers={[restrictToVerticalAxis]}
         onDragEnd={handleDragEnd}
+        onDragCancel={onDone}
       >
         <SortableContext
           items={props.items.map((item) => item.key)}
