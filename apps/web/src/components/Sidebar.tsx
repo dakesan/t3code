@@ -6,7 +6,9 @@ import {
 } from "./Sidebar.workspaceTree";
 import {
   SIDEBAR_WORKSPACE_LONG_PRESS_MS,
+  SIDEBAR_WORKSPACE_PRESS_SLOP_PX,
   SidebarWorkspaceReorderList,
+  type SidebarWorkspaceDragHandoff,
   foldSidebarThreadRows,
   sidebarWorkspaceLabel,
   type SidebarWorkspaceReorderItem,
@@ -2888,33 +2890,80 @@ export default function Sidebar() {
   // Holding a workspace header folds the thread rows away ("folding"), then
   // swaps the list for a reorderable list of workspace folders ("on").
   const [workspaceReorder, setWorkspaceReorder] = useState<"off" | "folding" | "on">("off");
-  const workspaceLongPressRef = useRef<{ timer: number; x: number; y: number } | null>(null);
-  const cancelWorkspaceLongPress = () => {
-    const press = workspaceLongPressRef.current;
+  // The press is tracked on window, not on the header: the header folds and
+  // unmounts mid-gesture, and a held button must carry over into a drag in the
+  // reorder list.
+  const workspacePressRef = useRef<{
+    key: string;
+    pointerId: number;
+    startX: number;
+    startY: number;
+    x: number;
+    y: number;
+    timer: number | null;
+    dispose: () => void;
+  } | null>(null);
+  const endWorkspacePress = () => {
+    const press = workspacePressRef.current;
     if (press === null) return;
-    window.clearTimeout(press.timer);
-    workspaceLongPressRef.current = null;
+    if (press.timer !== null) window.clearTimeout(press.timer);
+    press.dispose();
+    workspacePressRef.current = null;
   };
-  const startWorkspaceLongPress = (event: ReactPointerEvent) => {
+  const startWorkspaceLongPress = (event: ReactPointerEvent, key: string) => {
     if (event.button !== 0 || workspaceReorder !== "off") return;
-    cancelWorkspaceLongPress();
+    endWorkspacePress();
+    const pointerId = event.pointerId;
+    const handleMove = (moveEvent: PointerEvent) => {
+      const press = workspacePressRef.current;
+      if (press === null || moveEvent.pointerId !== pointerId) return;
+      press.x = moveEvent.clientX;
+      press.y = moveEvent.clientY;
+      // A hand resting on a trackpad or a remote screen drifts a few pixels.
+      const drift = Math.hypot(press.x - press.startX, press.y - press.startY);
+      if (press.timer !== null && drift > SIDEBAR_WORKSPACE_PRESS_SLOP_PX) endWorkspacePress();
+    };
+    const handleUp = (upEvent: PointerEvent) => {
+      if (upEvent.pointerId === pointerId) endWorkspacePress();
+    };
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp);
+    window.addEventListener("pointercancel", handleUp);
     const timer = window.setTimeout(() => {
-      workspaceLongPressRef.current = null;
+      const press = workspacePressRef.current;
+      if (press !== null) press.timer = null;
       setWorkspaceReorder("folding");
       void foldSidebarThreadRows(threadListRef.current).then(() => setWorkspaceReorder("on"));
     }, SIDEBAR_WORKSPACE_LONG_PRESS_MS);
-    workspaceLongPressRef.current = { timer, x: event.clientX, y: event.clientY };
+    workspacePressRef.current = {
+      key,
+      pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      x: event.clientX,
+      y: event.clientY,
+      timer,
+      dispose: () => {
+        window.removeEventListener("pointermove", handleMove);
+        window.removeEventListener("pointerup", handleUp);
+        window.removeEventListener("pointercancel", handleUp);
+      },
+    };
   };
-  const moveWorkspaceLongPress = (event: ReactPointerEvent) => {
-    const press = workspaceLongPressRef.current;
-    if (press !== null && Math.hypot(event.clientX - press.x, event.clientY - press.y) > 6) {
-      cancelWorkspaceLongPress();
-    }
+  // Hands the still-held long press to the reorder list, once.
+  const takeWorkspaceDragHandoff = (): SidebarWorkspaceDragHandoff | null => {
+    const press = workspacePressRef.current;
+    if (press === null || press.timer !== null) return null;
+    const handoff = { key: press.key, pointerId: press.pointerId, x: press.x, y: press.y };
+    endWorkspacePress();
+    return handoff;
   };
   useEffect(
     () => () => {
-      const press = workspaceLongPressRef.current;
-      if (press !== null) window.clearTimeout(press.timer);
+      const press = workspacePressRef.current;
+      if (press === null) return;
+      if (press.timer !== null) window.clearTimeout(press.timer);
+      press.dispose();
     },
     [],
   );
@@ -3691,7 +3740,12 @@ export default function Sidebar() {
   const workspaceReorderItems = (): SidebarWorkspaceReorderItem[] => {
     const byKey = new Map<
       string,
-      { path: string; environmentId: EnvironmentThreadShell["environmentId"]; threadCount: number }
+      {
+        path: string;
+        environmentId: EnvironmentThreadShell["environmentId"];
+        projectId: EnvironmentThreadShell["projectId"];
+        threadCount: number;
+      }
     >();
     for (const item of sidebarListItems) {
       if (item.kind !== "thread" || item.section === "pinned") continue;
@@ -3702,13 +3756,20 @@ export default function Sidebar() {
       if (key === null || path === null) continue;
       const existing = byKey.get(key);
       if (existing) existing.threadCount += 1;
-      else byKey.set(key, { path, environmentId: thread.environmentId, threadCount: 1 });
+      else
+        byKey.set(key, {
+          path,
+          environmentId: thread.environmentId,
+          projectId: thread.projectId,
+          threadCount: 1,
+        });
     }
     return [...byKey].map(([key, entry]) => ({
       key,
       path: entry.path,
       environmentLabel: environmentLabelById.get(entry.environmentId) ?? null,
       threadCount: entry.threadCount,
+      project: projectByKey.get(`${entry.environmentId}:${entry.projectId}`) ?? null,
     }));
   };
   useEffect(() => {
@@ -4898,6 +4959,7 @@ export default function Sidebar() {
                 })
               }
               onDone={() => setWorkspaceReorder("off")}
+              takeDragHandoff={takeWorkspaceDragHandoff}
             />
           ) : !isSearchingThreads ? (
             <TooltipProvider
@@ -5105,11 +5167,13 @@ export default function Sidebar() {
                                 key={`workspace:${item.key}`}
                                 data-workspace-header
                                 className="min-w-0 origin-left cursor-default truncate px-2.5 pt-2 pb-1 text-xs text-secondary-label select-none"
-                                onPointerDown={startWorkspaceLongPress}
-                                onPointerMove={moveWorkspaceLongPress}
-                                onPointerUp={cancelWorkspaceLongPress}
-                                onPointerLeave={cancelWorkspaceLongPress}
-                                onPointerCancel={cancelWorkspaceLongPress}
+                                onPointerDown={(event) => {
+                                  const thread = threadByKey.get(item.key);
+                                  const key = thread
+                                    ? sidebarWorkspaceKey(thread, workspaceRootOf)
+                                    : null;
+                                  if (key !== null) startWorkspaceLongPress(event, key);
+                                }}
                               >
                                 <Tooltip>
                                   <TooltipTrigger render={<span className="block truncate" />}>

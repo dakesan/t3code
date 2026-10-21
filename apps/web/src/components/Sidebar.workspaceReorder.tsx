@@ -16,8 +16,9 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { GripVerticalIcon } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useEffectEvent, useLayoutEffect, useRef } from "react";
 import { cn } from "~/lib/utils";
+import { ProjectFavicon, type ProjectFaviconProject } from "./ProjectFavicon";
 import { MiddleTruncate } from "./ui/middle-truncate";
 
 export type SidebarWorkspaceReorderItem = {
@@ -25,12 +26,25 @@ export type SidebarWorkspaceReorderItem = {
   readonly path: string;
   readonly environmentLabel: string | null;
   readonly threadCount: number;
+  readonly project: ProjectFaviconProject | null;
+};
+
+/** A long press that is still held when the reorder list mounts. */
+export type SidebarWorkspaceDragHandoff = {
+  readonly key: string;
+  readonly pointerId: number;
+  readonly x: number;
+  readonly y: number;
 };
 
 /** How long a workspace header must be held before the sidebar folds into reorder mode. */
 export const SIDEBAR_WORKSPACE_LONG_PRESS_MS = 450;
 /** Duration of the fold that collapses thread rows before the reorder list appears. */
 export const SIDEBAR_WORKSPACE_FOLD_MS = 220;
+/** Pointer drift allowed while holding before the press counts as a scroll or drag instead. */
+export const SIDEBAR_WORKSPACE_PRESS_SLOP_PX = 12;
+/** Session icons drawn in a folder's stack before the rest collapse into "+N". */
+const SESSION_STACK_LIMIT = 5;
 
 export function sidebarWorkspaceLabel(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).slice(-2).join("/");
@@ -76,6 +90,37 @@ export function foldSidebarThreadRows(list: HTMLElement | null): Promise<void> {
   return Promise.all(animations.map((animation) => animation.finished)).then(() => undefined);
 }
 
+function SessionStack(props: { project: ProjectFaviconProject | null; count: number }) {
+  const shown = Math.min(props.count, SESSION_STACK_LIMIT);
+  return (
+    <span
+      className="flex shrink-0 items-center"
+      aria-label={`${props.count} ${props.count === 1 ? "session" : "sessions"}`}
+    >
+      {Array.from({ length: shown }, (_, index) => (
+        <span
+          key={index}
+          aria-hidden
+          // Each icon tucks under the previous one, so the stack's length reads as the count.
+          className="-ml-2 flex size-5 items-center justify-center rounded-full bg-sidebar ring-2 ring-sidebar first:ml-0"
+          style={{ zIndex: shown - index }}
+        >
+          {props.project ? (
+            <ProjectFavicon project={props.project} className="size-3.5" />
+          ) : (
+            <span className="size-2 rounded-full bg-sidebar-muted-foreground" />
+          )}
+        </span>
+      ))}
+      {props.count > shown ? (
+        <span className="ml-1 text-2xs tabular-nums text-secondary-label">
+          +{props.count - shown}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 function SortableWorkspace(props: { item: SidebarWorkspaceReorderItem }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: props.item.key,
@@ -83,6 +128,7 @@ function SortableWorkspace(props: { item: SidebarWorkspaceReorderItem }) {
   return (
     <li
       ref={setNodeRef}
+      data-workspace-key={props.item.key}
       {...attributes}
       {...listeners}
       className={cn(
@@ -103,9 +149,7 @@ function SortableWorkspace(props: { item: SidebarWorkspaceReorderItem }) {
           </span>
         ) : null}
       </span>
-      <span className="shrink-0 text-xs tabular-nums text-secondary-label">
-        {props.item.threadCount}
-      </span>
+      <SessionStack project={props.item.project} count={props.item.threadCount} />
     </li>
   );
 }
@@ -114,8 +158,34 @@ export function SidebarWorkspaceReorderList(props: {
   items: readonly SidebarWorkspaceReorderItem[];
   onMove: (activeKey: string, overKey: string) => void;
   onDone: () => void;
+  takeDragHandoff: () => SidebarWorkspaceDragHandoff | null;
 }) {
   const { onDone } = props;
+  const listRef = useRef<HTMLUListElement | null>(null);
+  const takeDragHandoff = useEffectEvent(() => props.takeDragHandoff());
+  // When the long press is still held, start the drag on the folder that was
+  // pressed, so holding and dragging is one gesture. The real pointer keeps
+  // sending moves, so dnd-kit only needs the press it missed.
+  useLayoutEffect(() => {
+    const handoff = takeDragHandoff();
+    if (handoff === null) return;
+    const target = [...(listRef.current?.children ?? [])].find(
+      (child) => child instanceof HTMLElement && child.dataset.workspaceKey === handoff.key,
+    );
+    target?.dispatchEvent(
+      new PointerEvent("pointerdown", {
+        bubbles: true,
+        cancelable: true,
+        clientX: handoff.x,
+        clientY: handoff.y,
+        button: 0,
+        buttons: 1,
+        pointerId: handoff.pointerId,
+        pointerType: "mouse",
+        isPrimary: true,
+      }),
+    );
+  }, []);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 2 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -154,7 +224,7 @@ export function SidebarWorkspaceReorderList(props: {
           items={props.items.map((item) => item.key)}
           strategy={verticalListSortingStrategy}
         >
-          <ul role="list" className="flex flex-col gap-0.5">
+          <ul ref={listRef} role="list" className="flex flex-col gap-0.5">
             {props.items.map((item) => (
               <SortableWorkspace key={item.key} item={item} />
             ))}
