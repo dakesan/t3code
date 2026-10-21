@@ -140,13 +140,16 @@ function SortableWorkspace(props: { item: SidebarWorkspaceReorderItem }) {
         <span className="block truncate text-sm font-medium">
           <MiddleTruncate value={props.item.label} showTitle={false} />
         </span>
-        {props.item.environmentLabel ? (
-          <span className="block truncate text-2xs text-secondary-label">
-            {props.item.environmentLabel}
-          </span>
-        ) : null}
+        {/* The stack sits under the name so the name keeps the row's full width. */}
+        <span className="flex min-w-0 items-center gap-1.5">
+          <SessionStack sessions={props.item.sessions} />
+          {props.item.environmentLabel ? (
+            <span className="truncate text-2xs text-secondary-label">
+              {props.item.environmentLabel}
+            </span>
+          ) : null}
+        </span>
       </span>
-      <SessionStack sessions={props.item.sessions} />
     </li>
   );
 }
