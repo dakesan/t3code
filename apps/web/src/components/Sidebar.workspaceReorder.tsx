@@ -33,8 +33,6 @@ export type SidebarWorkspaceReorderItem = {
 export type SidebarWorkspaceDragHandoff = {
   readonly key: string;
   readonly pointerId: number;
-  readonly x: number;
-  readonly y: number;
 };
 
 /** How long a workspace header must be held before the sidebar folds into reorder mode. */
@@ -164,19 +162,23 @@ export function SidebarWorkspaceReorderList(props: {
   const takeDragHandoff = useEffectEvent(() => props.takeDragHandoff());
   // When the long press is still held, start the drag on the folder that was
   // pressed, so holding and dragging is one gesture. The real pointer keeps
-  // sending moves, so dnd-kit only needs the press it missed.
+  // sending moves, so dnd-kit only needs the press it missed. The press lands
+  // on the folder's row, not where its header was, because dnd-kit moves the
+  // folder by the pointer's offset from the press.
   useLayoutEffect(() => {
     const handoff = takeDragHandoff();
     if (handoff === null) return;
     const target = [...(listRef.current?.children ?? [])].find(
       (child) => child instanceof HTMLElement && child.dataset.workspaceKey === handoff.key,
     );
-    target?.dispatchEvent(
+    if (target === undefined) return;
+    const rect = target.getBoundingClientRect();
+    target.dispatchEvent(
       new PointerEvent("pointerdown", {
         bubbles: true,
         cancelable: true,
-        clientX: handoff.x,
-        clientY: handoff.y,
+        clientX: rect.left + rect.width / 2,
+        clientY: rect.top + rect.height / 2,
         button: 0,
         buttons: 1,
         pointerId: handoff.pointerId,

@@ -2944,8 +2944,6 @@ export default function Sidebar() {
     pointerId: number;
     startX: number;
     startY: number;
-    x: number;
-    y: number;
     timer: number | null;
     dispose: () => void;
   } | null>(null);
@@ -2963,10 +2961,8 @@ export default function Sidebar() {
     const handleMove = (moveEvent: PointerEvent) => {
       const press = workspacePressRef.current;
       if (press === null || moveEvent.pointerId !== pointerId) return;
-      press.x = moveEvent.clientX;
-      press.y = moveEvent.clientY;
       // A hand resting on a trackpad or a remote screen drifts a few pixels.
-      const drift = Math.hypot(press.x - press.startX, press.y - press.startY);
+      const drift = Math.hypot(moveEvent.clientX - press.startX, moveEvent.clientY - press.startY);
       if (press.timer !== null && drift > SIDEBAR_WORKSPACE_PRESS_SLOP_PX) endWorkspacePress();
     };
     const handleUp = (upEvent: PointerEvent) => {
@@ -2986,8 +2982,6 @@ export default function Sidebar() {
       pointerId,
       startX: event.clientX,
       startY: event.clientY,
-      x: event.clientX,
-      y: event.clientY,
       timer,
       dispose: () => {
         window.removeEventListener("pointermove", handleMove);
@@ -3000,7 +2994,7 @@ export default function Sidebar() {
   const takeWorkspaceDragHandoff = (): SidebarWorkspaceDragHandoff | null => {
     const press = workspacePressRef.current;
     if (press === null || press.timer !== null) return null;
-    const handoff = { key: press.key, pointerId: press.pointerId, x: press.x, y: press.y };
+    const handoff = { key: press.key, pointerId: press.pointerId };
     endWorkspacePress();
     return handoff;
   };
