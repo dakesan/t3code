@@ -192,12 +192,20 @@ export function SidebarWorkspaceReorderList(props: {
     useSensor(PointerSensor, { activationConstraint: { distance: 2 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
+  // Releasing the held press applies the order and returns to the threads.
+  // dnd-kit handles the release on document first, so a drop is saved before
+  // this listener on window closes the list.
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") onDone();
     };
+    const handlePointerUp = () => onDone();
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    window.addEventListener("pointerup", handlePointerUp);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
   }, [onDone]);
   const handleDragEnd = (event: DragEndEvent) => {
     if (event.over && event.active.id !== event.over.id) {
@@ -206,16 +214,7 @@ export function SidebarWorkspaceReorderList(props: {
   };
   return (
     <div className="flex min-h-0 flex-col gap-1 px-2 pt-1" data-testid="sidebar-workspace-reorder">
-      <div className="flex items-center justify-between px-1 pb-1">
-        <span className="text-xs text-secondary-label">Drag to reorder folders</span>
-        <button
-          type="button"
-          className="rounded-md px-2 py-0.5 text-xs font-medium text-sidebar-foreground hover:bg-sidebar-row-hover"
-          onClick={onDone}
-        >
-          Done
-        </button>
-      </div>
+      <div className="px-1 pb-1 text-xs text-secondary-label">Drag, then release to apply</div>
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
