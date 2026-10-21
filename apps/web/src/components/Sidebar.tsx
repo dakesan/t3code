@@ -5232,6 +5232,9 @@ export default function Sidebar() {
                                 // through the moving rows.
                                 className={cn(
                                   "min-w-0 origin-left cursor-default truncate px-2.5 pt-2 pb-1 text-xs text-secondary-label select-none",
+                                  // Recede with the settled rows so the folder
+                                  // does not outrank the Settled heading above it.
+                                  item.section === "settled" && "text-secondary-label/70",
                                   from !== null && "invisible",
                                 )}
                                 // Pinned rows keep their own order, so the
