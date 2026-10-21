@@ -1,18 +1,34 @@
 # Local nightly auto-compaction patch
 
-Run this command on Coordinator:
+Run this command on the fleet coordinator:
 
 ```sh
 ~/.local/bin/t3-nightly-patch update-all
 ```
 
 The command resolves the latest published nightly once, then uses that exact
-version on `coordinator`, `macmini`, `homebox`, and `macbook`. SSH aliases must be
-configured on the machine running the command.
+version on every computer listed in `nodes`. SSH aliases must be configured on the
+machine running the command.
 
-Routine updates are initiated from the MacBook update controls. Scheduled updates
-are disabled; do not enable the former `t3-fleet-update.timer` or the older MacBook
-`com.example.t3-version-sync` LaunchAgent. See Manual fleet updates from MacBook below.
+Node and host names are private to each fleet, so they live only in
+`~/.local/share/t3-nightly-patch/config.json`, never in this repository:
+
+```json
+{
+  "nodes": ["coordinator", "desktop", "laptop"],
+  "hostNodes": { "coordinator-hostname": "coordinator", "Desktop.local": "desktop" },
+  "coordinator": "coordinator"
+}
+```
+
+- `nodes`: the SSH alias of every computer, in deployment order.
+- `localNode` or `hostNodes`: which alias is the machine running the command. `hostNodes`
+  maps `hostname` output to an alias, so one config can be copied to every node.
+- `coordinator`: the SSH alias the Desktop update controls call to start a deployment.
+
+Routine updates are initiated from the Desktop update controls. Scheduled updates
+are disabled; do not enable the former `t3-fleet-update.timer` or the older
+version-sync LaunchAgent. See Manual fleet updates below.
 
 Every node must be reachable before any build or restart begins. Each node
 receives the source patch and installer, builds for its own operating system and
@@ -59,10 +75,10 @@ with the same app name and bundle ID out of normal launch resolution. The repair
 command below unregisters older copies and reopens the official installed app.
 
 A modified macOS app requires a local signature. Run `t3-nightly-patch setup-signing`
-once on the MacBook to create a persistent code-signing identity in a dedicated
+once on the Mac that builds Desktop patches to create a persistent code-signing identity in a dedicated
 keychain. Its generated password and encrypted key files remain in the private
 `~/.local/share/t3-nightly-patch/signing/` directory. The login-keychain password is
-not stored. Approve the certificate's code-signing trust once in the MacBook
+not stored. Approve the certificate's code-signing trust once in that Mac's
 Terminal when setup prints the command. SSH cannot authorize that trust change.
 Setup signs two different binaries with the same identifier and checks that their
 designated requirements match and contain no `cdhash`. Subsequent app builds and
@@ -135,19 +151,19 @@ captured from the committed feature branch during `install`; after changing the
 patch, commit it and run `t3-nightly-patch install` again. Future incompatible
 nightlies require adapting the source patch rather than forcing it to apply.
 
-## Manual fleet updates from MacBook
+## Manual fleet updates
 
 Scheduled deployment is disabled. `auto-update` and `install-auto` refuse to run.
-The Coordinator `t3-fleet-update.timer` must remain disabled.
-The fleet-managed MacBook distribution keeps the official updater disabled and
+The coordinator's `t3-fleet-update.timer` must remain disabled.
+The fleet-managed Desktop distribution keeps the official updater disabled and
 connects the existing update controls to the patched fleet coordinator instead.
 Checking for updates only reads the Nightly release list. Download/install and the
 application menu ask for explicit confirmation before preparing and deploying the
-selected version to all four computers. The dialog states that this action also
+selected version to every computer in `nodes`. The dialog states that this action also
 restarts T3; it is not a download-only action.
 
-A confirmed request starts `t3-manual-update.service` on Coordinator using systemd-run.
-The worker survives the MacBook app restart. All existing reachability, active-work,
+A confirmed request starts `t3-manual-update.service` on the coordinator using
+systemd-run. The worker survives the Desktop app restart. All existing reachability, active-work,
 signature, GUI validation and rollback checks apply. A blocked or failed request
 is reported and never retried on a schedule. The user must request it again.
 Result: `~/.local/share/t3-nightly-patch/manual-last.json`; service output:

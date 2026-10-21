@@ -92,6 +92,20 @@ function createManualUpdates({ currentVersion, latest, launch, confirm, publish,
   };
 }
 
+// The coordinator's SSH alias is private to each fleet, so it comes from the
+// local patch config rather than this public file.
+function coordinatorHost() {
+  const NodePath = require("node:path");
+  const state =
+    process.env.T3_PATCH_STATE_DIR ??
+    NodePath.join(require("node:os").homedir(), ".local/share/t3-nightly-patch");
+  const file = NodePath.join(state, "config.json");
+  const host = JSON.parse(require("node:fs").readFileSync(file, "utf8")).coordinator;
+  if (typeof host !== "string" || host === "")
+    throw new Error(`Set coordinator in ${file} to the SSH alias of the fleet coordinator`);
+  return host;
+}
+
 function install(electron, deps = {}) {
   const { execFile } = require("node:child_process");
   const ssh = (command) =>
@@ -108,7 +122,7 @@ function install(electron, deps = {}) {
           "ServerAliveInterval=15",
           "-o",
           "ServerAliveCountMax=2",
-          "Coordinator",
+          coordinatorHost(),
           command,
         ],
         { timeout: 45000, maxBuffer: 1024 * 1024 },
@@ -142,7 +156,7 @@ function install(electron, deps = {}) {
           title: "Update T3 Code on all computers",
           message: `Prepare and deploy Nightly ${version}?`,
           detail:
-            "The local patch will be applied. T3 Code on MacBook, Mac mini, homebox and Coordinator will restart only after every agent is idle. No scheduled retry will run if deployment is blocked.",
+            "The local patch will be applied. T3 Code on every computer in the fleet will restart only after every agent is idle. No scheduled retry will run if deployment is blocked.",
           buttons: ["Cancel", "Prepare and deploy"],
           defaultId: 0,
           cancelId: 0,

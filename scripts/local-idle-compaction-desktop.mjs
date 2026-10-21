@@ -57,7 +57,7 @@ export function repairStagingPath(appPath) {
 export function guiValidationMetadata(original) {
   const info = {
     ...original,
-    CFBundleIdentifier: "com.example.t3-patch-validation",
+    CFBundleIdentifier: `${original.CFBundleIdentifier}.patch-validation`,
     CFBundleDisplayName: "T3 Patch Validation",
   };
   // Electron resolves helper executables using the original bundle name.

@@ -171,7 +171,7 @@ export async function setupSigningIdentity(state) {
   ]);
   if (!trusted.stdout.includes(identity))
     throw new Error(
-      `Approve this certificate once in the MacBook Terminal: security add-trusted-cert -r trustRoot -p codeSign -k '${keychain}' '${cert}'`,
+      `Approve this certificate once in this Mac's Terminal: security add-trusted-cert -r trustRoot -p codeSign -k '${keychain}' '${cert}'`,
     );
   const record = { identity, keychain, passwordFile, createdAt: new Date().toISOString() };
   await unlockSigningIdentity(record);
@@ -184,7 +184,7 @@ export async function setupSigningIdentity(state) {
       "--force",
       ...identityArguments(record),
       "--identifier",
-      "com.example.t3.signing-probe",
+      "com.t3tools.t3code.signing-probe",
       probe,
     ]);
     await exec("/usr/bin/codesign", ["--verify", "--strict", probe]);

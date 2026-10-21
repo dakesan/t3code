@@ -376,10 +376,12 @@ async function main() {
     return;
   }
   if (action === "auto-update") {
-    throw new Error("Scheduled fleet updates are disabled; request an update from MacBook");
+    throw new Error(
+      "Scheduled fleet updates are disabled; request an update from the Desktop update controls",
+    );
   }
   if (action === "install-auto") {
-    throw new Error("Scheduled fleet updates are disabled; use MacBook manual updates");
+    throw new Error("Scheduled fleet updates are disabled; use the Desktop manual updates");
   }
   if (action === "export") {
     console.log(await exportPatch(context));
@@ -431,6 +433,9 @@ async function main() {
       throw new Error("Commit the patch before installing");
     const previous = (await exists(configFile)) ? await json(configFile) : {};
     await writeJson(configFile, {
+      nodes: previous.nodes,
+      hostNodes: previous.hostNodes,
+      coordinator: previous.coordinator,
       localNode: previous.localNode,
       desktopAppPath: previous.desktopAppPath,
       allowDesktopLocalBuild: previous.allowDesktopLocalBuild,

@@ -658,19 +658,21 @@ export async function fleetTransaction(
   }
 }
 
+// Node names and host names are private to each fleet, so they live in the
+// patch config instead of this public script.
+export function fleetNodes(config, hostname) {
+  const nodes = config.nodes ?? [];
+  if (nodes.length === 0)
+    throw new Error("Set nodes in the patch config to the SSH alias of every computer");
+  const localNode = config.localNode ?? config.hostNodes?.[hostname];
+  if (!nodes.includes(localNode))
+    throw new Error(`Set localNode in the patch config to one of ${nodes.join("/")}`);
+  return { nodes, localNode };
+}
+
 export async function runFleet(ctx, version) {
   const config = await ctx.settings();
-  const nodes = ["coordinator", "macmini", "homebox", "macbook"];
-  const localNode =
-    config.localNode ??
-    {
-      "coordinator-host": "coordinator",
-      "home-server": "homebox",
-      "Studio-Mac-mini.local": "macmini",
-      "TravelMac.local": "macbook",
-    }[NodeOS.hostname()];
-  if (!localNode)
-    throw new Error("Set localNode in the patch config to one of coordinator/macmini/homebox/macbook");
+  const { nodes, localNode } = fleetNodes(config, NodeOS.hostname());
   const payload = await exportPatch(ctx);
   const sshArgs = [
     "-T",
