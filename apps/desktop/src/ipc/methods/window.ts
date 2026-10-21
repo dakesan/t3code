@@ -38,7 +38,6 @@ import * as ElectronTheme from "../../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../../electron/ElectronWindow.ts";
 import * as Electron from "electron";
 import * as MacPermissions from "../../permissions/MacPermissions.ts";
-import * as WindowBackground from "../../window/windowBackground.ts";
 import { safariPermissionCheck } from "../../preview/BrowserImport/SafariPermission.ts";
 import * as IpcChannels from "../channels.ts";
 import * as DesktopIpc from "../DesktopIpc.ts";
@@ -266,18 +265,6 @@ export const setTheme = DesktopIpc.makeIpcMethod({
   handler: Effect.fn("desktop.ipc.window.setTheme")(function* (theme) {
     const electronTheme = yield* ElectronTheme.ElectronTheme;
     yield* electronTheme.setSource(theme);
-  }),
-});
-
-export const setWindowVibrancy = DesktopIpc.makeIpcMethod({
-  channel: IpcChannels.SET_WINDOW_VIBRANCY_CHANNEL,
-  payload: Schema.Boolean,
-  result: Schema.Void,
-  handler: Effect.fn("desktop.ipc.window.setWindowVibrancy")(function* (enabled) {
-    const electronWindow = yield* ElectronWindow.ElectronWindow;
-    const window = yield* electronWindow.main;
-    if (Option.isNone(window)) return;
-    WindowBackground.setWindowVibrancy(window.value, enabled);
   }),
 });
 

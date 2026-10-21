@@ -227,20 +227,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["transparent transparency solid menus dialogs composer"],
   },
   {
-    // Prefixed because the slider control already owns the `sidebar-translucency` id.
-    id: "setting-sidebar-translucency",
-    title: "Sidebar translucency",
-    to: "/settings/appearance",
-    searchTerms: ["transparent transparency frosted glass vibrancy blur window すりガラス 透過"],
-  },
-  {
-    // Prefixed because the slider control already owns the `main-translucency` id.
-    id: "setting-main-translucency",
-    title: "Main panel translucency",
-    to: "/settings/appearance",
-    searchTerms: ["transparent transparency frosted glass vibrancy blur window すりガラス 透過"],
-  },
-  {
     id: "diff-color-scheme",
     title: "Diff colors",
     to: "/settings/appearance",
