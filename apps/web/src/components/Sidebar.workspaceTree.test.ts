@@ -5,6 +5,7 @@ import {
   migrateSidebarWorkspaceOrder,
   moveSidebarWorkspace,
   orderSidebarWorkspaces,
+  sidebarReorderFolders,
 } from "./Sidebar.workspaceTree";
 
 const group = (threads: readonly { id: string; key: string | null }[]) =>
@@ -113,5 +114,25 @@ describe("moveSidebarWorkspace", () => {
   it("returns the saved order unchanged for a drop in place or an unknown key", () => {
     expect(moveSidebarWorkspace(["a"], ["a", "b"], "a", "a")).toEqual(["a"]);
     expect(moveSidebarWorkspace(["a"], ["a", "b"], "x", "a")).toEqual(["a"]);
+  });
+});
+
+describe("sidebarReorderFolders", () => {
+  it("lists each keyed folder once at its first thread and skips unkeyed threads", () => {
+    const folders = sidebarReorderFolders(
+      [
+        { id: "a", key: "repo" },
+        { id: "b", key: null },
+        { id: "c", key: "other" },
+        { id: "d", key: "repo" },
+      ],
+      (thread) => thread.key,
+    );
+    expect(
+      folders.map((folder) => [folder.key, folder.threads.map((thread) => thread.id)]),
+    ).toEqual([
+      ["repo", ["a", "d"]],
+      ["other", ["c"]],
+    ]);
   });
 });

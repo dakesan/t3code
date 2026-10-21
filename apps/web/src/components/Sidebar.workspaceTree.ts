@@ -22,6 +22,22 @@ export function groupSidebarWorkspaces<T>(
 }
 
 /**
+ * The folders the reorder list shows: threads that have a workspace key,
+ * grouped by it, in the order each folder first appears.
+ */
+export function sidebarReorderFolders<T>(
+  threads: readonly T[],
+  keyOf: (thread: T) => string | null,
+): { key: string; threads: T[] }[] {
+  const folders: { key: string; threads: T[] }[] = [];
+  for (const group of groupSidebarWorkspaces(threads, keyOf)) {
+    const key = keyOf(group[0]!);
+    if (key !== null) folders.push({ key, threads: group });
+  }
+  return folders;
+}
+
+/**
  * Rewrite saved keys from the earlier per-checkout format, a JSON array of
  * environment, project and path, to the current workspace key. A key that no
  * longer resolves is kept, so the saved place returns when its project does.

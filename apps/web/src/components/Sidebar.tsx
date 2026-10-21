@@ -4,6 +4,7 @@ import {
   keepsSidebarWorkspaceArrangement,
   migrateSidebarWorkspaceOrder,
   moveSidebarWorkspace,
+  sidebarReorderFolders,
 } from "./Sidebar.workspaceTree";
 import {
   SIDEBAR_WORKSPACE_LONG_PRESS_MS,
@@ -2763,39 +2764,32 @@ type SidebarWorkspace = {
   readonly project: ProjectFaviconProject;
 };
 
-// One entry per workspace folder in display order. Pinned rows keep their own
-// order, so they are not offered for reordering.
+// One entry per reorderable workspace folder, in display order.
 function buildSidebarWorkspaceReorderItems(input: {
-  listItems: readonly SidebarListItem[];
-  threadByKey: ReadonlyMap<string, EnvironmentThreadShell>;
+  folders: ReturnType<typeof sidebarReorderFolders<EnvironmentThreadShell>>;
   workspaceOf: (thread: EnvironmentThreadShell) => SidebarWorkspace | null;
   environmentLabelOf: (environmentId: EnvironmentThreadShell["environmentId"]) => string | null;
 }): readonly SidebarWorkspaceReorderItem[] {
-  const byKey = new Map<
-    string,
-    { label: string; environmentLabels: Set<string>; sessions: ProjectFaviconProject[] }
-  >();
-  for (const item of input.listItems) {
-    if (item.kind !== "thread" || item.section === "pinned") continue;
-    const thread = input.threadByKey.get(item.key);
-    const workspace = thread ? input.workspaceOf(thread) : null;
-    if (!thread || workspace === null) continue;
-    const entry = byKey.get(workspace.key) ?? {
-      label: workspace.label,
-      environmentLabels: new Set<string>(),
-      sessions: [],
-    };
-    const environmentLabel = input.environmentLabelOf(thread.environmentId);
-    if (environmentLabel !== null) entry.environmentLabels.add(environmentLabel);
-    entry.sessions.push(workspace.project);
-    byKey.set(workspace.key, entry);
-  }
-  return [...byKey].map(([key, entry]) => ({
-    key,
-    label: entry.label,
-    environmentLabel: [...entry.environmentLabels].join(", ") || null,
-    sessions: entry.sessions,
-  }));
+  return input.folders.flatMap((folder) => {
+    const workspaces = folder.threads.flatMap((thread) => {
+      const workspace = input.workspaceOf(thread);
+      return workspace === null ? [] : [{ thread, workspace }];
+    });
+    if (workspaces.length === 0) return [];
+    const environmentLabels = new Set<string>();
+    for (const { thread } of workspaces) {
+      const environmentLabel = input.environmentLabelOf(thread.environmentId);
+      if (environmentLabel !== null) environmentLabels.add(environmentLabel);
+    }
+    return [
+      {
+        key: folder.key,
+        label: workspaces[0]!.workspace.label,
+        environmentLabel: [...environmentLabels].join(", ") || null,
+        sessions: workspaces.map(({ workspace }) => workspace.project),
+      },
+    ];
+  });
 }
 
 export default function Sidebar() {
@@ -2956,7 +2950,7 @@ export default function Sidebar() {
     workspacePressRef.current = null;
   };
   const startWorkspaceLongPress = (event: ReactPointerEvent, key: string) => {
-    if (event.button !== 0 || workspaceReorder !== "off") return;
+    if (event.button !== 0 || workspaceReorder !== "off" || !canReorderWorkspaces) return;
     endWorkspacePress();
     const pointerId = event.pointerId;
     const handleMove = (moveEvent: PointerEvent) => {
@@ -3793,11 +3787,21 @@ export default function Sidebar() {
     // into the collapsed Settled shelf.
     sidebarListItems = sidebarListItemsFresh;
   }
+  // Pinned rows keep their own order, so only the other sections' folders are
+  // offered for reordering.
+  const workspaceFolders = sidebarReorderFolders(
+    sidebarListItems.flatMap((item) => {
+      const thread =
+        item.kind === "thread" && item.section !== "pinned" ? threadByKey.get(item.key) : undefined;
+      return thread ? [thread] : [];
+    }),
+    workspaceKeyOf,
+  );
+  const canReorderWorkspaces = workspaceFolders.length >= 2;
   const workspaceReorderItems =
     workspaceReorder === "on"
       ? buildSidebarWorkspaceReorderItems({
-          listItems: sidebarListItems,
-          threadByKey,
+          folders: workspaceFolders,
           workspaceOf,
           environmentLabelOf: (environmentId) => environmentLabelById.get(environmentId) ?? null,
         })
@@ -5257,6 +5261,11 @@ export default function Sidebar() {
                                     <span className="whitespace-pre-line">
                                       {workspace.locations}
                                     </span>
+                                    {item.section !== "pinned" && canReorderWorkspaces ? (
+                                      <span className="mt-1 block text-secondary-label">
+                                        Hold to reorder folders
+                                      </span>
+                                    ) : null}
                                   </TooltipPopup>
                                 </Tooltip>
                               </li>,
