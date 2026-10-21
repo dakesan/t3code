@@ -7,7 +7,7 @@ import {
 } from "@t3tools/contracts";
 import { useEffect, useMemo, useState } from "react";
 import { View } from "react-native";
-import { AppText as Text } from "../../components/AppText";
+import { AppText as Text } from "../../components/ui/AppText";
 import { environmentThreadDetails } from "../../state/threads";
 
 export function IdleCompactionNotice({
