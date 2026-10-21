@@ -53,41 +53,41 @@ export function sidebarWorkspaceLabel(path: string): string {
 /**
  * Collapse every thread row under the list so only workspace headers remain,
  * then resolve. Runs on the existing rows, so the user sees their tasks fold
- * away rather than the list being swapped out.
+ * away rather than the list being swapped out. Resolves on a timer, not on the
+ * animations: Chromium pauses animations in an occluded window, and the list
+ * must still open.
  */
 export function foldSidebarThreadRows(list: HTMLElement | null): Promise<void> {
-  if (list === null || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-    return Promise.resolve();
-  }
-  const animations: Animation[] = [];
-  for (const child of list.children) {
-    if (!(child instanceof HTMLElement)) continue;
-    const timing = { duration: SIDEBAR_WORKSPACE_FOLD_MS, easing: "ease-in", fill: "forwards" };
-    if (child.dataset.workspaceHeader !== undefined) {
-      animations.push(
+  if (list !== null && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    const timing: KeyframeAnimationOptions = {
+      duration: SIDEBAR_WORKSPACE_FOLD_MS,
+      easing: "ease-in",
+      fill: "forwards",
+    };
+    for (const child of list.children) {
+      if (!(child instanceof HTMLElement)) continue;
+      if (child.dataset.workspaceHeader !== undefined) {
         child.animate(
           [
             { transform: "scale(1)", opacity: 0.8 },
             { transform: "scale(1.04)", opacity: 1 },
           ],
-          timing as KeyframeAnimationOptions,
-        ),
-      );
-      continue;
-    }
-    const height = child.getBoundingClientRect().height;
-    child.style.overflow = "hidden";
-    animations.push(
+          timing,
+        );
+        continue;
+      }
+      const height = child.getBoundingClientRect().height;
+      child.style.overflow = "hidden";
       child.animate(
         [
           { height: `${height}px`, opacity: 1 },
           { height: "0px", opacity: 0 },
         ],
-        timing as KeyframeAnimationOptions,
-      ),
-    );
+        timing,
+      );
+    }
   }
-  return Promise.all(animations.map((animation) => animation.finished)).then(() => undefined);
+  return new Promise((resolve) => window.setTimeout(resolve, SIDEBAR_WORKSPACE_FOLD_MS));
 }
 
 function SessionStack(props: { project: ProjectFaviconProject | null; count: number }) {
