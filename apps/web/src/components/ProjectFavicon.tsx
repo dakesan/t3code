@@ -6,6 +6,7 @@ import {
 import { FolderCodeIcon, HouseIcon, LaptopIcon, MonitorIcon, ServerIcon } from "lucide-react";
 import { useEnvironment } from "../state/environments";
 import { resolveNodeIcon } from "../nodeIcon";
+import { useClientSettings } from "../hooks/useSettings";
 import type { ComponentType } from "react";
 import { createElement, lazy, Suspense, useState } from "react";
 import { useAtomValue } from "@effect/atom-react";
@@ -43,9 +44,11 @@ export function ProjectFavicon(input: {
 }) {
   const { project } = input;
   const environment = useEnvironment(project.environmentId);
+  const nodeIcons = useClientSettings((settings) => settings.nodeIcons);
   const nodeIcon = resolveNodeIcon({
     label: environment?.serverConfig?.environment.label ?? environment?.label ?? "",
     machine: environment?.serverConfig?.environment.platform.machine ?? null,
+    nodeIcons,
   });
   const src = useAtomValue(
     projectFaviconUrlAtom({

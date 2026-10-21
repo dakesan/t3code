@@ -1,4 +1,8 @@
 vi.mock("../state/environments", () => ({ useEnvironment: () => null }));
+vi.mock("../hooks/useSettings", () => ({
+  useClientSettings: (select: (settings: { nodeIcons: object }) => unknown) =>
+    select({ nodeIcons: {} }),
+}));
 import type { ComponentType, Dispatch, ReactElement, SetStateAction } from "react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { EnvironmentId } from "@t3tools/contracts";

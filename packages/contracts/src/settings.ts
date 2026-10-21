@@ -64,6 +64,9 @@ export const SidebarThreadSortOrder = Schema.Literals(["updated_at", "created_at
 export type SidebarThreadSortOrder = typeof SidebarThreadSortOrder.Type;
 const DEFAULT_SIDEBAR_THREAD_SORT_ORDER: SidebarThreadSortOrder = "updated_at";
 
+export const NodeIconKind = Schema.Literals(["server", "house", "monitor", "laptop"]);
+export type NodeIconKind = typeof NodeIconKind.Type;
+
 export const SidebarProjectGroupingMode = Schema.Literals([
   "repository",
   "repository_path",
@@ -455,6 +458,11 @@ export const ClientSettingsSchema = Schema.Struct({
   // dragged them; workspaces missing here keep their recency position.
   sidebarWorkspaceOrder: Schema.Array(Schema.String).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  // Environment labels mapped to the icon that marks their rows. Labels are the
+  // user's own host names, so they belong in settings rather than in code.
+  nodeIcons: Schema.Record(TrimmedNonEmptyString, NodeIconKind).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
   ),
   sidebarProjectGroupingMode: SidebarProjectGroupingMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_PROJECT_GROUPING_MODE)),
@@ -1653,6 +1661,7 @@ export const ClientSettingsPatch = Schema.Struct({
   legacySidebarEnabled: Schema.optionalKey(Schema.Boolean),
   sidebarWorkingShelfEnabled: Schema.optionalKey(Schema.Boolean),
   sidebarWorkspaceOrder: Schema.optionalKey(Schema.Array(Schema.String)),
+  nodeIcons: Schema.optionalKey(Schema.Record(TrimmedNonEmptyString, NodeIconKind)),
   sidebarProjectGroupingMode: Schema.optionalKey(SidebarProjectGroupingMode),
   sidebarProjectGroupingOverrides: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, SidebarProjectGroupingMode),
