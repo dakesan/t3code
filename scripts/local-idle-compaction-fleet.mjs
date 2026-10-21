@@ -660,11 +660,11 @@ export async function fleetTransaction(
 
 // Node names and host names are private to each fleet, so they live in the
 // patch config instead of this public script.
-export function fleetNodes(config, hostname) {
+export function fleetNodes(config) {
   const nodes = config.nodes ?? [];
   if (nodes.length === 0)
     throw new Error("Set nodes in the patch config to the SSH alias of every computer");
-  const localNode = config.localNode ?? config.hostNodes?.[hostname];
+  const localNode = config.localNode;
   if (!nodes.includes(localNode))
     throw new Error(`Set localNode in the patch config to one of ${nodes.join("/")}`);
   return { nodes, localNode };
@@ -672,7 +672,7 @@ export function fleetNodes(config, hostname) {
 
 export async function runFleet(ctx, version) {
   const config = await ctx.settings();
-  const { nodes, localNode } = fleetNodes(config, NodeOS.hostname());
+  const { nodes, localNode } = fleetNodes(config);
   const payload = await exportPatch(ctx);
   const sshArgs = [
     "-T",

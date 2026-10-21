@@ -434,7 +434,6 @@ async function main() {
     const previous = (await exists(configFile)) ? await json(configFile) : {};
     await writeJson(configFile, {
       nodes: previous.nodes,
-      hostNodes: previous.hostNodes,
       coordinator: previous.coordinator,
       localNode: previous.localNode,
       desktopAppPath: previous.desktopAppPath,

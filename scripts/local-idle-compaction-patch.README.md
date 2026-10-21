@@ -16,15 +16,16 @@ Node and host names are private to each fleet, so they live only in
 ```json
 {
   "nodes": ["coordinator", "desktop", "laptop"],
-  "hostNodes": { "coordinator-hostname": "coordinator", "Desktop.local": "desktop" },
+  "localNode": "coordinator",
   "coordinator": "coordinator"
 }
 ```
 
-- `nodes`: the SSH alias of every computer, in deployment order.
-- `localNode` or `hostNodes`: which alias is the machine running the command. `hostNodes`
-  maps `hostname` output to an alias, so one config can be copied to every node.
-- `coordinator`: the SSH alias the Desktop update controls call to start a deployment.
+- `nodes` and `localNode` are read on the coordinator. `nodes` is the SSH alias of
+  every computer, in deployment order; `localNode` is the alias of the coordinator
+  itself.
+- `coordinator` is read on the computer whose Desktop update controls start a
+  deployment. It is the SSH alias of the coordinator.
 
 Routine updates are initiated from the Desktop update controls. Scheduled updates
 are disabled; do not enable the former `t3-fleet-update.timer` or the older

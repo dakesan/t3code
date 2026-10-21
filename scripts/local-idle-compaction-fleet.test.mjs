@@ -13,14 +13,10 @@ import {
 } from "./local-idle-compaction-fleet.mjs";
 
 NodeTest.test("the fleet and the local node come from the patch config", () => {
-  const config = { nodes: ["hub", "desk"], hostNodes: { "Desk.local": "desk" } };
-  NodeAssert.deepEqual(fleetNodes(config, "Desk.local"), {
-    nodes: ["hub", "desk"],
-    localNode: "desk",
-  });
-  NodeAssert.equal(fleetNodes({ ...config, localNode: "hub" }, "Desk.local").localNode, "hub");
-  NodeAssert.throws(() => fleetNodes(config, "Unknown.local"), /one of hub\/desk/);
-  NodeAssert.throws(() => fleetNodes({}, "Desk.local"), /Set nodes/);
+  const config = { nodes: ["hub", "desk"], localNode: "desk" };
+  NodeAssert.deepEqual(fleetNodes(config), { nodes: ["hub", "desk"], localNode: "desk" });
+  NodeAssert.throws(() => fleetNodes({ ...config, localNode: "laptop" }), /one of hub\/desk/);
+  NodeAssert.throws(() => fleetNodes({ localNode: "desk" }), /Set nodes/);
 });
 
 NodeTest.test("an already current live service is not restarted", async (t) => {
