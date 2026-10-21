@@ -2960,10 +2960,11 @@ export default function Sidebar() {
     void foldSidebarThreadRows(threadListRef.current).then(() => setWorkspaceReorder("on"));
   };
   // Opens the reorder list with no held pointer, for the context menu.
-  const startWorkspaceReorderFromMenu = (key: string | null) => {
+  const startWorkspaceReorderFromMenu = (key: string | null, threadKey: string) => {
     if (workspaceReorder !== "off" || !canReorderWorkspaces) return;
     endWorkspacePress();
     workspaceFocusEntryRef.current = { kind: "focus", key };
+    workspaceReturnFocusRef.current = threadKey;
     foldIntoWorkspaceReorder();
   };
   const startWorkspaceLongPress = (event: ReactPointerEvent, key: string) => {
@@ -3002,6 +3003,20 @@ export default function Sidebar() {
     };
   };
   const workspaceFocusEntryRef = useRef<SidebarWorkspaceReorderEntry | null>(null);
+  const workspaceReturnFocusRef = useRef<string | null>(null);
+  // The closed list unmounts with focus inside it, which would drop a keyboard
+  // user on the page body; send them back to the thread whose menu opened it.
+  useLayoutEffect(() => {
+    if (workspaceReorder !== "off") return;
+    const threadKey = workspaceReturnFocusRef.current;
+    if (threadKey === null) return;
+    workspaceReturnFocusRef.current = null;
+    const rows = threadListRef.current?.querySelectorAll<HTMLElement>("[data-thread-item]") ?? [];
+    [...rows]
+      .find((row) => row.dataset.threadItem === threadKey)
+      ?.querySelector<HTMLElement>('[tabindex="0"]')
+      ?.focus();
+  }, [workspaceReorder]);
   // Hands the reorder list how it was opened, once: the menu's focus request,
   // or the still-held long press.
   const takeWorkspaceReorderEntry = (): SidebarWorkspaceReorderEntry | null => {
@@ -4545,7 +4560,7 @@ export default function Sidebar() {
             }
             return;
           case "reorder-folders":
-            startWorkspaceReorderFromMenu(workspaceKeyOf(thread));
+            startWorkspaceReorderFromMenu(workspaceKeyOf(thread), threadKey);
             return;
           case "project-settings":
             if (threadProjectGroup)
