@@ -311,6 +311,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["sort projects sidebar manual created recent"],
   },
   {
+    id: "node-icons",
+    title: "Node icons",
+    to: "/settings/general",
+    searchTerms: ["environment computer machine host icon color sidebar node ノード アイコン"],
+  },
+  {
     id: "snooze-limited-threads",
     title: "Snooze limited threads",
     to: "/settings/general",

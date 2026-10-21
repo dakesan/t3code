@@ -3,9 +3,9 @@ import {
   getProjectFaviconResourceKey,
   isProjectFaviconFallbackUrl,
 } from "@t3tools/shared/projectFavicon";
-import { FolderCodeIcon, HouseIcon, LaptopIcon, MonitorIcon, ServerIcon } from "lucide-react";
+import { FolderCodeIcon } from "lucide-react";
 import { useEnvironment } from "../state/environments";
-import { resolveNodeIcon } from "../nodeIcon";
+import { NODE_ICON_COMPONENT, resolveNodeIcon } from "../nodeIcon";
 import { useClientSettings } from "../hooks/useSettings";
 import type { ComponentType } from "react";
 import { createElement, lazy, Suspense, useState } from "react";
@@ -58,9 +58,7 @@ export function ProjectFavicon(input: {
     }),
   );
   if (nodeIcon) {
-    const Icon = { server: ServerIcon, house: HouseIcon, monitor: MonitorIcon, laptop: LaptopIcon }[
-      nodeIcon.name
-    ];
+    const Icon = NODE_ICON_COMPONENT[nodeIcon.name];
     return <Icon aria-hidden className={cn("shrink-0", input.className, nodeIcon.className)} />;
   }
   if (project.projectIcon?.kind === "monogram") {

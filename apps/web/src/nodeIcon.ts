@@ -1,6 +1,14 @@
 import type { EnvironmentMachineKind, NodeIconKind } from "@t3tools/contracts";
+import { HouseIcon, LaptopIcon, MonitorIcon, ServerIcon } from "lucide-react";
 
-const NODE_ICON_CLASS: Record<NodeIconKind, string> = {
+export const NODE_ICON_COMPONENT = {
+  server: ServerIcon,
+  house: HouseIcon,
+  monitor: MonitorIcon,
+  laptop: LaptopIcon,
+} satisfies Record<NodeIconKind, unknown>;
+
+export const NODE_ICON_CLASS: Record<NodeIconKind, string> = {
   server: "text-orange-600 dark:text-orange-400",
   house: "text-green-600 dark:text-green-400",
   monitor: "text-blue-600 dark:text-blue-400",
@@ -8,7 +16,7 @@ const NODE_ICON_CLASS: Record<NodeIconKind, string> = {
 };
 
 // "Studio-Mac.local", "studiomac" and "Studio Mac" name the same machine.
-const normalizeLabel = (label: string) =>
+export const normalizeNodeLabel = (label: string) =>
   label
     .replace(/\.local$/i, "")
     .toLowerCase()
@@ -19,9 +27,9 @@ export function resolveNodeIcon(input: {
   machine: EnvironmentMachineKind | null;
   nodeIcons: Readonly<Record<string, NodeIconKind>>;
 }) {
-  const label = normalizeLabel(input.label);
+  const label = normalizeNodeLabel(input.label);
   const configured = Object.entries(input.nodeIcons).find(
-    ([key]) => normalizeLabel(key) === label,
+    ([key]) => normalizeNodeLabel(key) === label,
   )?.[1];
   const name =
     configured ??

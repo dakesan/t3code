@@ -1,4 +1,5 @@
 import { ComposerQuickActionsSettings } from "./ComposerQuickActionsSettings";
+import { NodeIconsSettings } from "./NodeIconsSettings";
 import { SettingsGroup } from "./SettingsGroup";
 import { settingsScopeEnvironmentLabels } from "./settingsScopeAxis";
 import { useScopedSettingsWriteAllowed } from "./useScopedSettings";
@@ -2247,6 +2248,7 @@ export function GeneralSettingsPanel() {
             </Select>
           }
         />
+        <NodeIconsSettings />
 
         <SettingsRow
           serverScoped
