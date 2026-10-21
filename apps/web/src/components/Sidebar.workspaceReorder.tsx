@@ -102,7 +102,7 @@ function SessionStack(props: { project: ProjectFaviconProject | null; count: num
           key={index}
           aria-hidden
           // Each icon tucks under the previous one, so the stack's length reads as the count.
-          className="-ml-2 flex size-5 items-center justify-center rounded-full bg-sidebar ring-2 ring-sidebar first:ml-0"
+          className="-ml-1.5 flex size-5 items-center justify-center rounded-full bg-sidebar ring-2 ring-sidebar first:ml-0"
           style={{ zIndex: shown - index }}
         >
           {props.project ? (
@@ -134,7 +134,9 @@ function SortableWorkspace(props: { item: SidebarWorkspaceReorderItem }) {
       className={cn(
         "flex h-11 cursor-grab touch-none list-none items-center gap-2 rounded-md px-2.5 text-sidebar-foreground outline-none select-none",
         "hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-        isDragging && "relative z-10 cursor-grabbing bg-sidebar-row-active shadow-md",
+        // The lifted folder covers the one beneath it, so it needs an opaque surface.
+        isDragging &&
+          "relative z-10 cursor-grabbing bg-sidebar shadow-lg ring-1 ring-sidebar-border",
       )}
       style={{ transform: CSS.Translate.toString(transform), transition }}
     >
