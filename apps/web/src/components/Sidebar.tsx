@@ -3802,8 +3802,6 @@ export default function Sidebar() {
     // into the collapsed Settled shelf.
     sidebarListItems = sidebarListItemsFresh;
   }
-  // Built as a value, not a closure over sidebarListItems: a closure in the
-  // JSX changed how React Compiler memoized the list and broke thread drags.
   const workspaceReorderItems =
     workspaceReorder === "on"
       ? buildSidebarWorkspaceReorderItems({

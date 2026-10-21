@@ -279,6 +279,20 @@ describe("sidebar pointer lifecycle", () => {
     expect(drag.onFinish).toHaveBeenCalledOnce();
   });
 
+  it("keeps a started drag when the parent passes a new callback", async () => {
+    using _environment = setup();
+    let drag: ReturnType<typeof gesture> | undefined;
+    await using screen = await render(
+      <SidebarDragLifecycle onUnmount={() => drag?.sensor.cancel()} />,
+    );
+    drag = gesture();
+    document.dispatchEvent(pointer("pointermove", { clientY: 20 }));
+    await screen.rerender(<SidebarDragLifecycle onUnmount={() => drag?.sensor.cancel()} />);
+    document.dispatchEvent(pointer("pointerup", { buttons: 0 }));
+    expect(drag.onCancel).not.toHaveBeenCalled();
+    expect(drag.onEnd).toHaveBeenCalledOnce();
+  });
+
   it("detaches a cancelled sensor before a replacement gesture starts", () => {
     using _environment = setup();
     const previous = gesture();

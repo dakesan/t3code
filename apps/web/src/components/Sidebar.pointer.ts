@@ -1,10 +1,16 @@
-import { useLayoutEffect, type PointerEvent as ReactPointerEvent } from "react";
+import { useLayoutEffect, useRef, type PointerEvent as ReactPointerEvent } from "react";
 import { type SensorProps } from "@dnd-kit/core";
 import { getOwnerDocument, getWindow } from "@dnd-kit/utilities";
 
 // Search unmounts the drag context while its owning Sidebar remains mounted.
+// Only a real unmount cancels: Sidebar can hand over a new callback in the render a
+// drag start triggers, and running the cleanup then would cancel that drag.
 export function SidebarDragLifecycle({ onUnmount }: { onUnmount: () => void }) {
-  useLayoutEffect(() => onUnmount, [onUnmount]);
+  const onUnmountRef = useRef(onUnmount);
+  useLayoutEffect(() => {
+    onUnmountRef.current = onUnmount;
+  });
+  useLayoutEffect(() => () => onUnmountRef.current(), []);
   return null;
 }
 
