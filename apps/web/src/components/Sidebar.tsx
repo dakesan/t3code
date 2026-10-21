@@ -2751,6 +2751,41 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
   );
 });
 
+const NO_WORKSPACE_REORDER_ITEMS: readonly SidebarWorkspaceReorderItem[] = [];
+
+// One entry per workspace folder in display order. Pinned rows keep their own
+// order, so they are not offered for reordering.
+function buildSidebarWorkspaceReorderItems(input: {
+  listItems: readonly SidebarListItem[];
+  threadByKey: ReadonlyMap<string, EnvironmentThreadShell>;
+  workspaceRootOf: (thread: EnvironmentThreadShell) => string | null;
+  environmentLabelOf: (environmentId: EnvironmentThreadShell["environmentId"]) => string | null;
+  projectOf: (
+    environmentId: EnvironmentThreadShell["environmentId"],
+    projectId: EnvironmentThreadShell["projectId"],
+  ) => ProjectFaviconProject | null;
+}): readonly SidebarWorkspaceReorderItem[] {
+  const byKey = new Map<string, { thread: EnvironmentThreadShell; path: string; count: number }>();
+  for (const item of input.listItems) {
+    if (item.kind !== "thread" || item.section === "pinned") continue;
+    const thread = input.threadByKey.get(item.key);
+    if (!thread) continue;
+    const key = sidebarWorkspaceKey(thread, input.workspaceRootOf);
+    const path = thread.worktreePath ?? input.workspaceRootOf(thread);
+    if (key === null || path === null) continue;
+    const existing = byKey.get(key);
+    if (existing) existing.count += 1;
+    else byKey.set(key, { thread, path, count: 1 });
+  }
+  return [...byKey].map(([key, entry]) => ({
+    key,
+    path: entry.path,
+    environmentLabel: input.environmentLabelOf(entry.thread.environmentId),
+    threadCount: entry.count,
+    project: input.projectOf(entry.thread.environmentId, entry.thread.projectId),
+  }));
+}
+
 export default function Sidebar() {
   const {
     projects,
@@ -3735,43 +3770,20 @@ export default function Sidebar() {
     // into the collapsed Settled shelf.
     sidebarListItems = sidebarListItemsFresh;
   }
-  // One entry per workspace folder in display order. Pinned rows keep their own
-  // order, so they are not offered for reordering.
-  const workspaceReorderItems = (): SidebarWorkspaceReorderItem[] => {
-    const byKey = new Map<
-      string,
-      {
-        path: string;
-        environmentId: EnvironmentThreadShell["environmentId"];
-        projectId: EnvironmentThreadShell["projectId"];
-        threadCount: number;
-      }
-    >();
-    for (const item of sidebarListItems) {
-      if (item.kind !== "thread" || item.section === "pinned") continue;
-      const thread = threadByKey.get(item.key);
-      if (!thread) continue;
-      const key = sidebarWorkspaceKey(thread, workspaceRootOf);
-      const path = thread.worktreePath ?? workspaceRootOf(thread);
-      if (key === null || path === null) continue;
-      const existing = byKey.get(key);
-      if (existing) existing.threadCount += 1;
-      else
-        byKey.set(key, {
-          path,
-          environmentId: thread.environmentId,
-          projectId: thread.projectId,
-          threadCount: 1,
-        });
-    }
-    return [...byKey].map(([key, entry]) => ({
-      key,
-      path: entry.path,
-      environmentLabel: environmentLabelById.get(entry.environmentId) ?? null,
-      threadCount: entry.threadCount,
-      project: projectByKey.get(`${entry.environmentId}:${entry.projectId}`) ?? null,
-    }));
-  };
+  // Built as a value, not a closure over sidebarListItems: a closure in the
+  // JSX changed how React Compiler memoized the list and broke thread drags.
+  const workspaceReorderItems =
+    workspaceReorder === "on"
+      ? buildSidebarWorkspaceReorderItems({
+          listItems: sidebarListItems,
+          threadByKey,
+          workspaceRootOf,
+          environmentLabelOf: (environmentId) => environmentLabelById.get(environmentId) ?? null,
+          projectOf: (environmentId, projectId) =>
+            projectByKey.get(`${environmentId}:${projectId}`) ?? null,
+        })
+      : NO_WORKSPACE_REORDER_ITEMS;
+
   useEffect(() => {
     if (
       dragState !== null &&
@@ -4947,12 +4959,12 @@ export default function Sidebar() {
           ) : null}
           {!isSearchingThreads && workspaceReorder === "on" ? (
             <SidebarWorkspaceReorderList
-              items={workspaceReorderItems()}
+              items={workspaceReorderItems}
               onMove={(activeKey, overKey) =>
                 updateClientSettings({
                   sidebarWorkspaceOrder: moveSidebarWorkspace(
                     workspaceOrder,
-                    workspaceReorderItems().map((item) => item.key),
+                    workspaceReorderItems.map((item) => item.key),
                     activeKey,
                     overKey,
                   ),
