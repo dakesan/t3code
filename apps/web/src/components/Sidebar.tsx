@@ -5234,11 +5234,17 @@ export default function Sidebar() {
                                   "min-w-0 origin-left cursor-default truncate px-2.5 pt-2 pb-1 text-xs text-secondary-label select-none",
                                   from !== null && "invisible",
                                 )}
-                                onPointerDown={(event) => {
-                                  const thread = threadByKey.get(item.key);
-                                  const key = thread ? workspaceKeyOf(thread) : null;
-                                  if (key !== null) startWorkspaceLongPress(event, key);
-                                }}
+                                // Pinned rows keep their own order, so the
+                                // reorder list has no place for this folder.
+                                onPointerDown={
+                                  item.section === "pinned"
+                                    ? undefined
+                                    : (event) => {
+                                        const thread = threadByKey.get(item.key);
+                                        const key = thread ? workspaceKeyOf(thread) : null;
+                                        if (key !== null) startWorkspaceLongPress(event, key);
+                                      }
+                                }
                               >
                                 <Tooltip>
                                   <TooltipTrigger render={<span className="block truncate" />}>
