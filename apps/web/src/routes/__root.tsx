@@ -12,7 +12,7 @@ import {
   useRouter,
 } from "@tanstack/react-router";
 import { Check, Copy } from "lucide";
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "react";
 
 import { APP_BASE_NAME, APP_DISPLAY_NAME, APP_STAGE_LABEL, APP_VERSION } from "../branding";
 import { resolveServerBackedAppDisplayName } from "../branding.logic";
@@ -55,6 +55,11 @@ import {
   toastManager,
 } from "../components/ui/toast";
 import { isElectron } from "../env";
+import {
+  applyWindowTranslucency,
+  isWindowTranslucencyEnabled,
+  isWindowTranslucencySupported,
+} from "../windowTranslucency";
 import { cn } from "../lib/utils";
 import { applyAppearanceFontVariables } from "~/appearanceFonts";
 import { applyAppearanceContrast } from "~/appearanceContrast";
@@ -185,6 +190,7 @@ function RootRouteView() {
           <ContrastAppearanceSync />
           <EnvironmentThemeSync />
           <GlassAppearanceSync />
+          <WindowTranslucencySync />
           <FontAppearanceSync />
           <ProviderAuthCallbackCoordinator />
           <CustomSnoozeDialogHost />
@@ -224,6 +230,7 @@ function RootRouteView() {
         <ContrastAppearanceSync />
         <EnvironmentThemeSync />
         <GlassAppearanceSync />
+        <WindowTranslucencySync />
         <FontAppearanceSync />
         <ProviderAuthCallbackCoordinator />
         <ChatGptWelcomeCoordinator />
@@ -290,6 +297,23 @@ function ContrastAppearanceSync() {
   useEffect(() => {
     applyAppearanceContrast(document.documentElement, appearanceContrast);
   }, [appearanceContrast]);
+
+  return null;
+}
+
+function WindowTranslucencySync() {
+  const sidebarTranslucency = useClientSettings((settings) => settings.sidebarTranslucency);
+  const mainTranslucency = useClientSettings((settings) => settings.mainTranslucency);
+  const enabled = isWindowTranslucencyEnabled(sidebarTranslucency, mainTranslucency);
+
+  useLayoutEffect(() => {
+    applyWindowTranslucency(document.documentElement, sidebarTranslucency, mainTranslucency);
+  }, [sidebarTranslucency, mainTranslucency]);
+
+  useEffect(() => {
+    if (!isWindowTranslucencySupported()) return;
+    void window.desktopBridge?.setWindowVibrancy?.(enabled);
+  }, [enabled]);
 
   return null;
 }

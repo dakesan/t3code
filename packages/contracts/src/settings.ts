@@ -101,6 +101,17 @@ export const GlassOpacity = Schema.Int.check(
 );
 export type GlassOpacity = typeof GlassOpacity.Type;
 const DEFAULT_GLASS_OPACITY: GlassOpacity = 80;
+// Desktop window translucency: share of the desktop that shows through a
+// surface. Capped below 100 so text keeps a backing.
+export const MIN_WINDOW_TRANSLUCENCY = 0;
+export const MAX_WINDOW_TRANSLUCENCY = 90;
+export const WindowTranslucency = Schema.Int.check(
+  Schema.isBetween({
+    minimum: MIN_WINDOW_TRANSLUCENCY,
+    maximum: MAX_WINDOW_TRANSLUCENCY,
+  }),
+);
+export type WindowTranslucency = typeof WindowTranslucency.Type;
 
 export const MIN_APPEARANCE_CONTRAST = 50;
 export const MAX_APPEARANCE_CONTRAST = 200;
@@ -392,6 +403,12 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   glassOpacity: GlassOpacity.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_GLASS_OPACITY)),
+  ),
+  sidebarTranslucency: WindowTranslucency.pipe(
+    Schema.withDecodingDefault(Effect.succeed(MIN_WINDOW_TRANSLUCENCY)),
+  ),
+  mainTranslucency: WindowTranslucency.pipe(
+    Schema.withDecodingDefault(Effect.succeed(MIN_WINDOW_TRANSLUCENCY)),
   ),
   fontSizeInterface: InterfaceFontSize.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_INTERFACE_FONT_SIZE)),
@@ -1619,6 +1636,8 @@ export const ClientSettingsPatch = Schema.Struct({
   diffLayout: Schema.optionalKey(DiffLayout),
   environmentIdentificationMode: Schema.optionalKey(EnvironmentIdentificationMode),
   glassOpacity: Schema.optionalKey(GlassOpacity),
+  sidebarTranslucency: Schema.optionalKey(WindowTranslucency),
+  mainTranslucency: Schema.optionalKey(WindowTranslucency),
   onboardingCompletedAt: Schema.optionalKey(Schema.NullOr(Schema.String)),
   fontSizeInterface: Schema.optionalKey(InterfaceFontSize),
   fontSizePrompt: Schema.optionalKey(PromptFontSize),

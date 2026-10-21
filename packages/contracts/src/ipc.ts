@@ -1108,6 +1108,8 @@ export interface DesktopBridge {
   pickProjectFavicon?: (initialPath?: string) => Promise<string | null>;
   pickThemeFiles?: () => Promise<readonly PickedThemeFile[] | null>;
   setTheme: (theme: DesktopTheme) => Promise<void>;
+  /** Optional while older desktop shells can host a newer web client. macOS only. */
+  setWindowVibrancy?: (enabled: boolean) => Promise<void>;
   showContextMenu: <T extends string>(
     items: readonly ContextMenuItem<T>[],
     position?: { x: number; y: number },

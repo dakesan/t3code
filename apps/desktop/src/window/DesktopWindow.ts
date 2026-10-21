@@ -35,6 +35,12 @@ import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts";
 import { makeQuitShortcutHandler } from "./QuitHold.ts";
 import { copyContextMenuImage } from "./ContextMenuImage.ts";
+import {
+  getInitialWindowBackgroundColor,
+  markTransparentWindow,
+  TRANSPARENT_WINDOW_BACKGROUND,
+  windowBackgroundColor,
+} from "./windowBackground.ts";
 
 const TITLEBAR_HEIGHT = 40;
 // Matches --workspace-topbar-height in apps/web/src/index.css. Native macOS
@@ -131,10 +137,6 @@ function getIconOption(
     onNone: () => ({}),
     onSome: (icon) => ({ icon }),
   });
-}
-
-function getInitialWindowBackgroundColor(shouldUseDarkColors: boolean): string {
-  return shouldUseDarkColors ? "#0a0a0a" : "#ffffff";
 }
 
 type DisplayBounds = Pick<Electron.Rectangle, "x" | "y" | "width" | "height">;
@@ -261,7 +263,9 @@ function syncWindowAppearance(
       return;
     }
 
-    window.setBackgroundColor(getInitialWindowBackgroundColor(shouldUseDarkColors));
+    window.setBackgroundColor(
+      windowBackgroundColor(window, getInitialWindowBackgroundColor(shouldUseDarkColors)),
+    );
     const { titleBarOverlay } = getWindowTitleBarOptions(shouldUseDarkColors, platform);
     if (typeof titleBarOverlay === "object") {
       window.setTitleBarOverlay(titleBarOverlay);
@@ -387,8 +391,13 @@ export const make = Effect.gen(function* () {
       minHeight: 620,
       show: false,
       autoHideMenuBar: true,
-      ...(environment.platform === "darwin" ? { disableAutoHideCursor: true } : {}),
-      backgroundColor: getInitialWindowBackgroundColor(shouldUseDarkColors),
+      ...(environment.platform === "darwin"
+        ? { disableAutoHideCursor: true, visualEffectState: "active" as const }
+        : {}),
+      backgroundColor:
+        environment.platform === "darwin"
+          ? TRANSPARENT_WINDOW_BACKGROUND
+          : getInitialWindowBackgroundColor(shouldUseDarkColors),
       ...iconOption,
       title: environment.displayName,
       ...getWindowTitleBarOptions(shouldUseDarkColors, environment.platform),
@@ -409,6 +418,7 @@ export const make = Effect.gen(function* () {
         disableHtmlFullscreenWindowResize: true,
       },
     });
+    if (environment.platform === "darwin") markTransparentWindow(window);
     if (yield* Ref.get(desktopState.quitting)) {
       yield* electronWindow.destroyAll;
       return Option.none();

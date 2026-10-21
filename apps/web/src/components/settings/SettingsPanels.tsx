@@ -1,5 +1,6 @@
 import { ComposerQuickActionsSettings } from "./ComposerQuickActionsSettings";
 import { SettingsGroup } from "./SettingsGroup";
+import { isWindowTranslucencySupported } from "../../windowTranslucency";
 import { settingsScopeEnvironmentLabels } from "./settingsScopeAxis";
 import { useScopedSettingsWriteAllowed } from "./useScopedSettings";
 import { Spinner } from "~/components/ui/spinner";
@@ -33,6 +34,7 @@ import {
   MAX_APPEARANCE_CONTRAST,
   MAX_CODE_FONT_SIZE,
   MAX_GLASS_OPACITY,
+  MAX_WINDOW_TRANSLUCENCY,
   MAX_INTERFACE_FONT_SIZE,
   MAX_PANEL_ANIMATION_DURATION_MS,
   MAX_PROMPT_FONT_SIZE,
@@ -41,6 +43,7 @@ import {
   MIN_CODE_FONT_SIZE,
   MIN_APPEARANCE_CONTRAST,
   MIN_GLASS_OPACITY,
+  MIN_WINDOW_TRANSLUCENCY,
   MIN_INTERFACE_FONT_SIZE,
   MIN_PANEL_ANIMATION_DURATION_MS,
   MIN_PROMPT_FONT_SIZE,
@@ -513,6 +516,71 @@ function AboutVersionSection() {
   );
 }
 
+function WindowTranslucencyRow({
+  description,
+  id,
+  label,
+  onChange,
+  resetValue,
+  value,
+}: {
+  description: string;
+  id: "sidebar-translucency" | "main-translucency";
+  label: string;
+  onChange: (value: number) => void;
+  resetValue: number;
+  value: number;
+}) {
+  const ratio =
+    (value - MIN_WINDOW_TRANSLUCENCY) / (MAX_WINDOW_TRANSLUCENCY - MIN_WINDOW_TRANSLUCENCY);
+  const sliderStyle = {
+    "--settings-slider-progress": `${ratio * 100}%`,
+    "--settings-slider-fill-offset": `${0.5 - ratio}rem`,
+  } as CSSProperties;
+  return (
+    <SettingsRow
+      {...searchableSetting(`setting-${id}`)}
+      description={description}
+      resetAction={
+        value !== resetValue ? (
+          <SettingResetButton label={label.toLowerCase()} onClick={() => onChange(resetValue)} />
+        ) : null
+      }
+      control={
+        <div className="flex w-full items-center gap-3 sm:w-52">
+          <output
+            className="min-w-12 rounded-md bg-muted px-2 py-1 text-center font-mono text-xs font-medium tabular-nums text-foreground"
+            htmlFor={id}
+          >
+            {value}%
+          </output>
+          <input
+            aria-label={label}
+            className="settings-slider min-w-0 flex-1"
+            id={id}
+            max={MAX_WINDOW_TRANSLUCENCY}
+            min={MIN_WINDOW_TRANSLUCENCY}
+            onChange={(event) => {
+              const next = Number(event.currentTarget.value);
+              if (
+                Number.isInteger(next) &&
+                next >= MIN_WINDOW_TRANSLUCENCY &&
+                next <= MAX_WINDOW_TRANSLUCENCY
+              ) {
+                onChange(next);
+              }
+            }}
+            step={5}
+            style={sliderStyle}
+            type="range"
+            value={value}
+          />
+        </div>
+      }
+    />
+  );
+}
+
 export function useSettingsRestore(onRestored?: () => void) {
   const {
     theme,
@@ -540,6 +608,12 @@ export function useSettingsRestore(onRestored?: () => void) {
       ? ["Contrast"]
       : []),
     ...(settings.glassOpacity !== DEFAULT_UNIFIED_SETTINGS.glassOpacity ? ["Glass opacity"] : []),
+    ...(settings.sidebarTranslucency !== DEFAULT_UNIFIED_SETTINGS.sidebarTranslucency
+      ? ["Sidebar translucency"]
+      : []),
+    ...(settings.mainTranslucency !== DEFAULT_UNIFIED_SETTINGS.mainTranslucency
+      ? ["Main panel translucency"]
+      : []),
     ...(settings.diffColorScheme !== DEFAULT_UNIFIED_SETTINGS.diffColorScheme
       ? ["Diff colors"]
       : []),
@@ -743,6 +817,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       contextWindowMeterEnabled: DEFAULT_UNIFIED_SETTINGS.contextWindowMeterEnabled,
       environmentIdentificationMode: DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode,
       glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
+      sidebarTranslucency: DEFAULT_UNIFIED_SETTINGS.sidebarTranslucency,
+      mainTranslucency: DEFAULT_UNIFIED_SETTINGS.mainTranslucency,
       panelAnimationDurationMs: DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs,
       sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
@@ -1229,6 +1305,27 @@ export function AppearanceSettingsPanel() {
             </div>
           }
         />
+
+        {isWindowTranslucencySupported() ? (
+          <>
+            <WindowTranslucencyRow
+              description="Let the desktop behind the window show through the sidebar."
+              id="sidebar-translucency"
+              label="Sidebar translucency"
+              onChange={(sidebarTranslucency) => updateSettings({ sidebarTranslucency })}
+              resetValue={DEFAULT_UNIFIED_SETTINGS.sidebarTranslucency}
+              value={settings.sidebarTranslucency}
+            />
+            <WindowTranslucencyRow
+              description="Let the desktop behind the window show through the main panel."
+              id="main-translucency"
+              label="Main panel translucency"
+              onChange={(mainTranslucency) => updateSettings({ mainTranslucency })}
+              resetValue={DEFAULT_UNIFIED_SETTINGS.mainTranslucency}
+              value={settings.mainTranslucency}
+            />
+          </>
+        ) : null}
 
         {showEnvironmentIdentification ? (
           <SettingsRow
