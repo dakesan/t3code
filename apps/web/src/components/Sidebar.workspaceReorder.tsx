@@ -144,7 +144,7 @@ function SortableWorkspace(props: { item: SidebarWorkspaceReorderItem }) {
       {...attributes}
       {...listeners}
       className={cn(
-        "flex min-h-11 cursor-grab touch-none list-none items-center gap-2 rounded-md px-2.5 py-1.5 text-sidebar-foreground outline-none select-none",
+        "flex min-h-11 cursor-grab touch-none list-none items-center gap-2 rounded-md px-2.5 py-0.5 text-sidebar-foreground outline-none select-none",
         "hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
         // The lifted folder covers the one beneath it, so it needs an opaque surface.
         isDragging &&
