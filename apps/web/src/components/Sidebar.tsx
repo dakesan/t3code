@@ -3860,6 +3860,16 @@ export default function Sidebar() {
     settledVisibleCount,
     routeThreadKey: routeRowThreadKey,
     snoozedThreadCount: snoozedThreads.length,
+    // Only while dragging, so streamed thread shells do not rebuild the strategy.
+    ...(dragState === null
+      ? {}
+      : {
+          arrange: (section: SidebarSection, keys: readonly string[]) =>
+            arrangeSidebarWorkspaces(keys, workspaceOrderOf(section), (key) => {
+              const thread = threadByKey.get(key);
+              return thread ? workspaceKeyOf(thread) : null;
+            }),
+        }),
   });
   const draggedThreadKey = dragState?.activeKey;
   const draggedFromSection = dragState?.activeSection;

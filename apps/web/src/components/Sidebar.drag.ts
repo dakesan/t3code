@@ -103,6 +103,8 @@ export function createSidebarSortingStrategy(input: {
   cardHeight?: number;
   slimHeight?: number;
   boundaryLabelHeight?: number;
+  /** Regroups a section's rows the way the list does after a drop. */
+  arrange?: (section: SidebarSection, keys: readonly string[]) => readonly string[];
 }): SortingStrategy {
   if (input.enabled === false) return () => stationary;
   const { items } = input;
@@ -168,6 +170,16 @@ export function createSidebarSortingStrategy(input: {
       visible.push(routeKey);
     }
     groups.settled = visible.map((key) => ({ kind: "thread", key, section: "settled" }));
+    const { arrange } = input;
+    if (arrange) {
+      for (const name of Object.keys(groups) as SidebarSection[]) {
+        const byKey = new Map(groups[name].map((item) => [item.key, item]));
+        groups[name] = arrange(
+          name,
+          groups[name].map((item) => item.key),
+        ).map((key) => byKey.get(key)!);
+      }
+    }
     const projected: SidebarListItem[] = [];
     const marker = (name: SidebarListMarker) => projected.push({ kind: "marker", marker: name });
     const section = (name: "active" | "settled") => {

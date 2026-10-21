@@ -14,6 +14,7 @@ import {
   type SidebarListMarker,
   type SidebarSection,
 } from "./Sidebar.logic";
+import { arrangeSidebarWorkspaces } from "./Sidebar.workspaceTree";
 
 const thread = (key: string, section: SidebarSection): SidebarListItem => ({
   kind: "thread",
@@ -840,6 +841,70 @@ describe("sidebar drag projection", () => {
     );
     expect(result.get(sidebarMarkerId("snoozed-header"))).toEqual({ ...stationary, y: 83 });
     expect(result.get(sidebarMarkerId("settled-header"))?.y).toBe(46);
+  });
+
+  describe("with folders", () => {
+    // Folder "g" is ordered before folder "s"; each key's first letter names its folder.
+    const arrange = (_section: SidebarSection, keys: readonly string[]) =>
+      arrangeSidebarWorkspaces(keys, ["g", "s"], (key) => key[0]!);
+
+    it("keeps settled rows in folder order while another row moves", () => {
+      const items = [
+        pinnedHeader,
+        divider,
+        thread("a1", "active"),
+        thread("a2", "active"),
+        settledHeader,
+        thread("g1", "settled"),
+        thread("s1", "settled"),
+      ];
+      const result = preview(
+        { items, settledOrder: ["s1", "g1"], settledExpanded: true, arrange },
+        "a1",
+        "a2",
+      );
+      expect(result.get("g1")).toEqual(stationary);
+      expect(result.get("s1")).toEqual(stationary);
+    });
+
+    it("opens a settled drop inside its folder, not at its time slot", () => {
+      const items = [
+        pinnedHeader,
+        divider,
+        thread("s0", "active"),
+        settledHeader,
+        thread("g1", "settled"),
+        thread("s1", "settled"),
+      ];
+      const result = preview(
+        { items, settledOrder: ["s0", "g1", "s1"], settledExpanded: true, arrange },
+        "s0",
+        "g1",
+      );
+      expect(result.get("g1")?.y).toBe(-46);
+      expect(result.get("s1")?.y).toBe(-9);
+    });
+
+    it("opens an unpinned row inside its folder wherever it crosses into Active", () => {
+      const items = [
+        pinnedHeader,
+        thread("s0", "pinned"),
+        divider,
+        thread("g1", "active"),
+        thread("g2", "active"),
+        thread("s1", "active"),
+        settledHeader,
+        marker("settled-placeholder"),
+      ];
+      const result = preview(
+        { items, settledOrder: [], settledExpanded: false, arrange },
+        "s0",
+        "g1",
+      );
+      expect(result.get("g1")?.y).toBe(-83);
+      expect(result.get("g2")?.y).toBe(-83);
+      expect(result.get("s1")).toEqual(stationary);
+    });
   });
 });
 
