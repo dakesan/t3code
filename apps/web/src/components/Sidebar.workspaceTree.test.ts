@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
   groupSidebarWorkspaces,
+  keepsSidebarWorkspaceArrangement,
   migrateSidebarWorkspaceOrder,
   moveSidebarWorkspace,
   orderSidebarWorkspaces,
@@ -75,6 +76,28 @@ describe("orderSidebarWorkspaces", () => {
       null,
       "a",
     ]);
+  });
+});
+
+describe("keepsSidebarWorkspaceArrangement", () => {
+  // Threads are named by their workspace: "s1" belongs to "s", "x" is alone.
+  const keyOf = (thread: string) => thread[0]!;
+  it("accepts a reorder inside a folder", () => {
+    expect(keepsSidebarWorkspaceArrangement(["s1", "s2", "g2", "g1"], ["s", "g"], keyOf)).toBe(
+      true,
+    );
+  });
+  it("rejects a slot inside another folder", () => {
+    expect(keepsSidebarWorkspaceArrangement(["s1", "g2", "s2", "g1"], ["s", "g"], keyOf)).toBe(
+      false,
+    );
+  });
+  it("rejects moving a placed folder's thread ahead of the saved folder order", () => {
+    expect(keepsSidebarWorkspaceArrangement(["g1", "s1", "s2"], ["s", "g"], keyOf)).toBe(false);
+  });
+  it("lets an unplaced thread move among the unplaced ones, but not into a placed folder", () => {
+    expect(keepsSidebarWorkspaceArrangement(["y", "x", "s1", "s2"], ["s"], keyOf)).toBe(true);
+    expect(keepsSidebarWorkspaceArrangement(["y", "s1", "x", "s2"], ["s"], keyOf)).toBe(false);
   });
 });
 

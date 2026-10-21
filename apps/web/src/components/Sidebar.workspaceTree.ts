@@ -80,6 +80,31 @@ export function orderSidebarWorkspaces<T>(
   return [...unplaced, ...placed.map((entry) => entry.group)];
 }
 
+/** A section's rows as the sidebar shows them: grouped, then groups in saved order. */
+export function arrangeSidebarWorkspaces<T>(
+  threads: readonly T[],
+  order: readonly string[],
+  keyOf: (thread: T) => string | null,
+): T[] {
+  return orderSidebarWorkspaces(groupSidebarWorkspaces(threads, keyOf), order, (group) =>
+    keyOf(group[0]!),
+  ).flat();
+}
+
+/**
+ * Whether a section in `threadOrder` already reads as the sidebar arranges it.
+ * A drop that fails this would be regrouped away from where it was put.
+ */
+export function keepsSidebarWorkspaceArrangement(
+  threadOrder: readonly string[],
+  order: readonly string[],
+  keyOf: (thread: string) => string | null,
+): boolean {
+  return arrangeSidebarWorkspaces(threadOrder, order, keyOf).every(
+    (thread, index) => thread === threadOrder[index],
+  );
+}
+
 /**
  * The saved order after the user drops `activeKey` where `overKey` was in the
  * visible list. Visible keys are written in their new order; saved keys that

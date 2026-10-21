@@ -1,8 +1,9 @@
 import {
+  arrangeSidebarWorkspaces,
   groupSidebarWorkspaces,
+  keepsSidebarWorkspaceArrangement,
   migrateSidebarWorkspaceOrder,
   moveSidebarWorkspace,
-  orderSidebarWorkspaces,
 } from "./Sidebar.workspaceTree";
 import {
   SIDEBAR_WORKSPACE_LONG_PRESS_MS,
@@ -3732,22 +3733,18 @@ export default function Sidebar() {
     (environmentId, projectId) =>
       workspaceByProject.get(`${environmentId}:${projectId}`)?.key ?? null,
   );
+  // Pinned rows already follow the order the user pinned and dragged them in.
+  const workspaceOrderOf = (section: SidebarSection) =>
+    section === "pinned" ? [] : savedWorkspaceOrder;
   const sidebarListItemsFresh = ((): readonly SidebarListItem[] => {
     const rowsOf = (
       list: readonly EnvironmentThreadShell[],
       section: SidebarSection,
     ): SidebarListItem[] =>
-      orderSidebarWorkspaces(
-        groupSidebarWorkspaces(list, workspaceKeyOf),
-        // Pinned rows already follow the order the user pinned and dragged them in.
-        section === "pinned" ? [] : savedWorkspaceOrder,
-        (group) => workspaceKeyOf(group[0]!),
-      )
-        .flat()
-        .map((thread) => {
-          const key = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
-          return { kind: "thread", key, section };
-        });
+      arrangeSidebarWorkspaces(list, workspaceOrderOf(section), workspaceKeyOf).map((thread) => {
+        const key = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+        return { kind: "thread", key, section };
+      });
     if (
       pinnedThreads.length +
         activeThreads.length +
@@ -3876,6 +3873,21 @@ export default function Sidebar() {
       (id) => {
         const target = resolveSidebarDropTarget(sidebarListItems, draggedThreadKey, id);
         if (target === null) return false;
+        // Rows regroup by workspace after a drop, so a slot inside another
+        // folder would not hold. Moves to another section land in their folder.
+        if (
+          target.section === draggedFromSection &&
+          target.section !== "settled" &&
+          !keepsSidebarWorkspaceArrangement(
+            target.section === "pinned" ? target.pinnedOrder : target.activeOrder,
+            workspaceOrderOf(target.section),
+            (key) => {
+              const thread = threadByKey.get(key);
+              return thread ? workspaceKeyOf(thread) : null;
+            },
+          )
+        )
+          return false;
         return (
           planSidebarThreadDrop({
             activeKey: draggedThreadKey,
@@ -5205,7 +5217,13 @@ export default function Sidebar() {
                               <li
                                 key={`workspace:${item.key}`}
                                 data-workspace-header
-                                className="min-w-0 origin-left cursor-default truncate px-2.5 pt-2 pb-1 text-xs text-secondary-label select-none"
+                                // The drag layout packs rows without folder
+                                // headers, so they hide instead of showing
+                                // through the moving rows.
+                                className={cn(
+                                  "min-w-0 origin-left cursor-default truncate px-2.5 pt-2 pb-1 text-xs text-secondary-label select-none",
+                                  from !== null && "invisible",
+                                )}
                                 onPointerDown={(event) => {
                                   const thread = threadByKey.get(item.key);
                                   const key = thread ? workspaceKeyOf(thread) : null;
