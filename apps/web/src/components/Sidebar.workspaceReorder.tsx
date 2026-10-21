@@ -19,7 +19,6 @@ import { GripVerticalIcon } from "lucide-react";
 import { useEffect, useEffectEvent, useLayoutEffect, useRef } from "react";
 import { cn } from "~/lib/utils";
 import { ProjectFavicon, type ProjectFaviconProject } from "./ProjectFavicon";
-import { MiddleTruncate } from "./ui/middle-truncate";
 
 export type SidebarWorkspaceReorderItem = {
   readonly key: string;
@@ -145,7 +144,7 @@ function SortableWorkspace(props: { item: SidebarWorkspaceReorderItem }) {
       {...attributes}
       {...listeners}
       className={cn(
-        "flex h-11 cursor-grab touch-none list-none items-center gap-2 rounded-md px-2.5 text-sidebar-foreground outline-none select-none",
+        "flex min-h-11 cursor-grab touch-none list-none items-center gap-2 rounded-md px-2.5 py-1.5 text-sidebar-foreground outline-none select-none",
         "hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
         // The lifted folder covers the one beneath it, so it needs an opaque surface.
         isDragging &&
@@ -155,8 +154,9 @@ function SortableWorkspace(props: { item: SidebarWorkspaceReorderItem }) {
     >
       <GripVerticalIcon className="size-4 shrink-0 text-sidebar-muted-foreground" />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium">
-          <MiddleTruncate value={props.item.label} showTitle={false} />
+        {/* The whole name matters here: folders can share a long prefix or suffix. */}
+        <span data-workspace-label className="block text-sm font-medium [overflow-wrap:anywhere]">
+          {props.item.label}
         </span>
         {/* The stack sits under the name so the name keeps the row's full width. */}
         <span className="flex min-w-0 items-center gap-1.5">

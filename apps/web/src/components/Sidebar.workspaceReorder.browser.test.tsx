@@ -86,4 +86,26 @@ describe("SidebarWorkspaceReorderList", () => {
     );
     expect(document.activeElement).toBe(screen.container.querySelector('[data-workspace-key="a"]'));
   });
+
+  it("shows a long folder name in full by wrapping it", async () => {
+    const label = "dakesan/t3-tree-grouping-test-with-an-unusually-long-suffix";
+    await using screen = await render(
+      <div style={{ width: 180 }}>
+        <SidebarWorkspaceReorderList
+          items={[{ ...items[0]!, label }, items[1]!]}
+          onMove={() => {}}
+          onDone={() => {}}
+          takeEntry={() => null}
+        />
+      </div>,
+    );
+    const name = screen.container.querySelector<HTMLElement>("[data-workspace-label]")!;
+    expect(name.textContent).toBe(label);
+    expect(name.scrollWidth).toBeLessThanOrEqual(name.clientWidth);
+    expect(name.getBoundingClientRect().height).toBeGreaterThan(
+      screen.container
+        .querySelector<HTMLElement>('[data-workspace-key="b"]')!
+        .getBoundingClientRect().height,
+    );
+  });
 });
