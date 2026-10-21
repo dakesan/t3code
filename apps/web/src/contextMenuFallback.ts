@@ -242,10 +242,41 @@ export function showContextMenuFallback<T extends string>(
       resolve(result);
     };
 
+    const enabledButtons = (menu: HTMLDivElement) =>
+      [...menu.querySelectorAll<HTMLButtonElement>("button")].filter((button) => !button.disabled);
+
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
         cleanup(null);
+        return;
+      }
+
+      const active = document.activeElement;
+      const level = menuStack.findIndex((menu) =>
+        enabledButtons(menu).some((button) => button === active),
+      );
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        const buttons = enabledButtons(menuStack[Math.max(level, 0)]!);
+        if (buttons.length === 0) {
+          return;
+        }
+        const current = buttons.findIndex((button) => button === active);
+        const step = event.key === "ArrowDown" ? 1 : -1;
+        const next = current === -1 && step === -1 ? buttons.length - 1 : current + step;
+        buttons[(next + buttons.length) % buttons.length]!.focus({ preventScroll: true });
+      } else if (event.key === "ArrowRight" && level >= 0) {
+        const trigger = active as HTMLButtonElement;
+        if (trigger.getAttribute("aria-haspopup") === "menu") {
+          event.preventDefault();
+          trigger.click();
+        }
+      } else if (event.key === "ArrowLeft" && level > 0) {
+        event.preventDefault();
+        const trigger = submenuTriggerStack[level];
+        closeMenusFromLevel(level);
+        trigger?.focus({ preventScroll: true });
       }
     };
 
@@ -477,6 +508,10 @@ export function showContextMenuFallback<T extends string>(
     document.addEventListener("pointerdown", onPointerDown, true);
     document.addEventListener("contextmenu", onContextMenu, true);
     openMenu(items, position?.x ?? 0, position?.y ?? 0, 0);
+    // Keyboard-opened menus take focus; mouse-opened ones stay unhighlighted until hover.
+    if (previouslyFocusedElement?.matches(":focus-visible")) {
+      enabledButtons(menuStack[0]!)[0]?.focus({ preventScroll: true });
+    }
     // Only one fallback menu can be open at a time: a new show must dismiss
     // any prior one, or its DOM and listeners leak and close() can only ever
     // reach the newest menu.

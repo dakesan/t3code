@@ -28,6 +28,7 @@ class FakeElement {
   className = "";
   disabled = false;
   focused = false;
+  focusVisible = false;
   type = "";
   private textValue = "";
   private readonly listeners = new Map<string, FakeListener[]>();
@@ -67,6 +68,18 @@ class FakeElement {
 
   setAttribute(name: string, value: string) {
     this.attributes.set(name, value);
+  }
+
+  getAttribute(name: string) {
+    return this.attributes.get(name) ?? null;
+  }
+
+  matches(selector: string) {
+    return selector === ":focus-visible" && this.focused && this.focusVisible;
+  }
+
+  click() {
+    this.dispatchEvent(new FakeDomEvent("click"));
   }
 
   dispatchEvent(event: FakeDomEvent) {
@@ -174,9 +187,28 @@ class FakeDocument {
     }
   }
 
+  dispatchEvent(event: FakeDomEvent) {
+    for (const listener of (this.listeners.get(event.type) ?? []).slice()) {
+      listener(event);
+    }
+  }
+
   querySelectorAll(tagName: string) {
     return this.body.querySelectorAll(tagName);
   }
+}
+
+function focusInvoker(focusVisible: boolean) {
+  const fakeDocument = document as unknown as FakeDocument;
+  const invoker = fakeDocument.createElement("button");
+  invoker.focusVisible = focusVisible;
+  fakeDocument.body.appendChild(invoker);
+  invoker.focus();
+  return invoker;
+}
+
+function pressKey(key: string) {
+  (document as unknown as FakeDocument).dispatchEvent(new KeyboardEvent("keydown", { key }));
 }
 
 function findButton(label: string): FakeElement | undefined {
@@ -325,6 +357,77 @@ describe("showContextMenuFallback", () => {
 
     await expect(selectionPromise).resolves.toBe("copy:branch");
     expect(invoker.focused).toBe(true);
+  });
+});
+
+describe("showContextMenuFallback keyboard operation", () => {
+  const items = [
+    { id: "rename", label: "Rename", disabled: true },
+    { id: "pin", label: "Pin" },
+    { id: "move", label: "Move" },
+    { id: "delete", label: "Delete" },
+  ];
+
+  it("focuses the first enabled item when opened from a keyboard-focused element", async () => {
+    focusInvoker(true);
+    const selectionPromise = showContextMenuFallback(items);
+
+    expect(findButton("Pin")?.focused).toBe(true);
+    dismissContextMenu();
+    await selectionPromise;
+  });
+
+  it("moves focus with arrow keys, skipping disabled items and wrapping", async () => {
+    focusInvoker(true);
+    const selectionPromise = showContextMenuFallback(items);
+
+    pressKey("ArrowDown");
+    expect(findButton("Move")?.focused).toBe(true);
+    pressKey("ArrowUp");
+    pressKey("ArrowUp");
+    expect(findButton("Delete")?.focused).toBe(true);
+    pressKey("ArrowDown");
+    expect(findButton("Pin")?.focused).toBe(true);
+    pressKey("ArrowDown");
+    findButton("Move")?.click();
+
+    await expect(selectionPromise).resolves.toBe("move");
+  });
+
+  it("leaves items unfocused when opened after a pointer interaction", async () => {
+    focusInvoker(false);
+    const selectionPromise = showContextMenuFallback(items);
+
+    expect(findButton("Pin")?.focused).toBe(false);
+    dismissContextMenu();
+    await selectionPromise;
+  });
+
+  it("opens a submenu with ArrowRight and returns to its trigger with ArrowLeft", async () => {
+    focusInvoker(true);
+    const selectionPromise = showContextMenuFallback([
+      {
+        id: "folders:submenu",
+        label: "Folders",
+        children: [
+          { id: "folders:a", label: "Folder A" },
+          { id: "folders:b", label: "Folder B" },
+        ],
+      },
+    ]);
+    const trigger = findButton("Folders");
+
+    expect(trigger?.focused).toBe(true);
+    pressKey("ArrowRight");
+    expect(findButton("Folder A")?.focused).toBe(true);
+    pressKey("ArrowDown");
+    expect(findButton("Folder B")?.focused).toBe(true);
+    pressKey("ArrowLeft");
+    expect(findButton("Folder A")).toBeUndefined();
+    expect(trigger?.focused).toBe(true);
+
+    dismissContextMenu();
+    await selectionPromise;
   });
 });
 
