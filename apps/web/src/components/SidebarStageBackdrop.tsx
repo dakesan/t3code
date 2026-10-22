@@ -395,7 +395,7 @@ function DevBlueprintArt({ compact = false }: { compact?: boolean }) {
 // The creature is a raster line drawing, inverted so its lines are white, and used
 // as a luminance mask. Painting through the mask lets the lines follow the theme's
 // night palette instead of baking a color into the image.
-const CUSTOM_CREATURE = { x: -8, y: -84, size: 352 } as const;
+const CUSTOM_CREATURE = { x: 40, y: -84, size: 352 } as const;
 
 function CustomCreatureArt({ compact = false }: { compact?: boolean }) {
   const idPrefix = useId().replaceAll(":", "");
@@ -411,7 +411,7 @@ function CustomCreatureArt({ compact = false }: { compact?: boolean }) {
       className="h-full w-full"
       fill="none"
       preserveAspectRatio="xMinYMin slice"
-      viewBox={compact ? "196 4 8192 96" : STAGE_BACKDROP_VIEW_BOX}
+      viewBox={compact ? "244 4 8192 96" : STAGE_BACKDROP_VIEW_BOX}
       xmlns="http://www.w3.org/2000/svg"
     >
       <defs>
@@ -433,7 +433,7 @@ function CustomCreatureArt({ compact = false }: { compact?: boolean }) {
           cx="0"
           cy="0"
           r="1"
-          gradientTransform="translate(232 40) rotate(150) scale(150 80)"
+          gradientTransform="translate(280 40) rotate(150) scale(150 80)"
           gradientUnits="userSpaceOnUse"
         >
           <stop style={{ stopColor: "var(--stage-night-glow-highlight)" }} stopOpacity="0.32" />
@@ -445,9 +445,9 @@ function CustomCreatureArt({ compact = false }: { compact?: boolean }) {
           <stop offset="1" style={{ stopColor: "var(--stage-night-bottom)" }} stopOpacity="0" />
         </radialGradient>
         {/* Fades the tentacles that reach under the brand text on the left. */}
-        <linearGradient id={inkId} x1="0" y1="0" x2="240" y2="0" gradientUnits="userSpaceOnUse">
-          <stop style={{ stopColor: "var(--stage-night-line)" }} stopOpacity="0.22" />
-          <stop offset="1" style={{ stopColor: "var(--stage-night-line)" }} stopOpacity="0.78" />
+        <linearGradient id={inkId} x1="170" y1="0" x2="300" y2="0" gradientUnits="userSpaceOnUse">
+          <stop style={{ stopColor: "var(--stage-night-line)" }} stopOpacity="0.12" />
+          <stop offset="1" style={{ stopColor: "var(--stage-night-line)" }} stopOpacity="0.8" />
         </linearGradient>
         <mask id={maskId} maskUnits="userSpaceOnUse" x={x} y={y} width={size} height={size}>
           <image href={customStageMaskUrl} x={x} y={y} width={size} height={size} />
