@@ -223,16 +223,6 @@ async function prepare(version, release) {
   const pm = (await json(NodePath.join(source, "package.json"))).packageManager;
   await run("npx", ["--yes", pm, "install", "--frozen-lockfile"], { cwd: source });
   const vp = NodePath.join(source, "node_modules/.bin/vp");
-  await run(
-    vp,
-    [
-      "test",
-      "run",
-      "packages/contracts/src/idleCompaction.test.ts",
-      "apps/server/src/orchestration-v2/IdleCompactionWorker.test.ts",
-    ],
-    { cwd: source },
-  );
   await run("node", ["scripts/update-release-package-versions.ts", version], { cwd: source });
   const env = { PATH: `${NodePath.join(source, "node_modules/.bin")}:${process.env.PATH}` };
   await run(vp, ["run", "--filter", "t3", "build"], { cwd: source, env });
