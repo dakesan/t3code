@@ -7,6 +7,14 @@ const NIGHTLY_VERSION_PATTERN = /^[^-+]+-nightly\.\d{8}\.\d+$/;
 // updater feed ever lists a preview release.
 const PRERELEASE_VERSION_PATTERN = /^[^-+]+-(?:nightly|preview)\.\d{8}\.\d+$/;
 
+// Locally built forks are versioned `<base>-local.<commit>`; they get their own
+// branding so they are never mistaken for an official channel build.
+const LOCAL_VERSION_PATTERN = /^[^-+]+-local\./;
+
+export function isLocalDesktopVersion(version: string): boolean {
+  return LOCAL_VERSION_PATTERN.test(version);
+}
+
 export function isNightlyDesktopVersion(version: string): boolean {
   return PRERELEASE_VERSION_PATTERN.test(version);
 }

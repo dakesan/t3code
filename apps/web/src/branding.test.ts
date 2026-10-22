@@ -92,6 +92,17 @@ describe("branding logic", () => {
     ).toBe("T3 Code (Nightly)");
   });
 
+  it("names locally built fork servers Custom", () => {
+    expect(
+      resolveServerBackedAppDisplayName({
+        baseName: "T3 Code",
+        fallbackDisplayName: "T3 Code (Beta)",
+        fallbackStageLabel: "Beta",
+        primaryServerVersion: "0.1.1-local.2352a925",
+      }),
+    ).toBe("T3 Code (Custom)");
+  });
+
   it("keeps the fallback display name for stable primary server versions", () => {
     expect(
       resolveServerBackedAppDisplayName({

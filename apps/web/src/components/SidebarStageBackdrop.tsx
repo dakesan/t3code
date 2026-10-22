@@ -1,12 +1,13 @@
 import { useAtomValue } from "@effect/atom-react";
 import { useId } from "react";
 
+import customStageMaskUrl from "../assets/custom-stage-mask.webp";
 import { APP_STAGE_LABEL } from "../branding";
 import { resolveServerBackedAppStageLabel } from "../branding.logic";
 import { primaryServerConfigAtom } from "../state/server";
 
-export type SidebarStageBackdropVariant = "nightly" | "dev";
-export type EnvironmentIdentificationPillLabel = "Dev" | "Nightly";
+export type SidebarStageBackdropVariant = "nightly" | "dev" | "custom";
+export type EnvironmentIdentificationPillLabel = "Dev" | "Nightly" | "Custom";
 
 const STAGE_BACKDROP_VIEW_BOX = "0 0 8192 96";
 
@@ -18,6 +19,7 @@ export function resolveSidebarStageBackdropVariant(
   const normalized = stageLabel.trim().toLowerCase();
   if (normalized === "nightly") return "nightly";
   if (normalized === "dev") return "dev";
+  if (normalized === "custom") return "custom";
   return null;
 }
 
@@ -27,6 +29,7 @@ export function resolveEnvironmentIdentificationPillLabel(
   const normalized = stageLabel.trim().toLowerCase();
   if (normalized === "dev") return "Dev";
   if (normalized === "nightly") return "Nightly";
+  if (normalized === "custom") return "Custom";
   return null;
 }
 
@@ -56,10 +59,12 @@ export function SidebarStageBackdrop({ variant }: { variant: SidebarStageBackdro
 }
 
 export function StageBackdropArt({ variant }: { variant: SidebarStageBackdropVariant }) {
+  if (variant === "custom") return <CustomCreatureArt />;
   return variant === "nightly" ? <NightlySkyArt /> : <DevBlueprintArt />;
 }
 
 export function StageBackdropButtonArt({ variant }: { variant: SidebarStageBackdropVariant }) {
+  if (variant === "custom") return <CustomCreatureArt compact />;
   return variant === "nightly" ? <NightlySkyArt compact /> : <DevBlueprintArt compact />;
 }
 
@@ -383,6 +388,82 @@ function DevBlueprintArt({ compact = false }: { compact?: boolean }) {
       <rect width="100%" height="96" fill={`url(#${majorGridId})`} />
       <rect width="100%" height="6" fill={`url(#${rulerId})`} />
       <rect width="100%" height="96" fill={`url(#${annotationsId})`} />
+    </svg>
+  );
+}
+
+// The creature is a raster line drawing, inverted so its lines are white, and used
+// as a luminance mask. Painting through the mask lets the lines follow the theme's
+// night palette instead of baking a color into the image.
+const CUSTOM_CREATURE = { x: -8, y: -84, size: 352 } as const;
+
+function CustomCreatureArt({ compact = false }: { compact?: boolean }) {
+  const idPrefix = useId().replaceAll(":", "");
+  const skyId = `${idPrefix}-stage-custom-sky`;
+  const glowId = `${idPrefix}-stage-custom-glow`;
+  const inkId = `${idPrefix}-stage-custom-ink`;
+  const maskId = `${idPrefix}-stage-custom-mask`;
+  const { x, y, size } = CUSTOM_CREATURE;
+
+  return (
+    <svg
+      data-stage-art="custom"
+      className="h-full w-full"
+      fill="none"
+      preserveAspectRatio="xMinYMin slice"
+      viewBox={compact ? "196 4 8192 96" : STAGE_BACKDROP_VIEW_BOX}
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <defs>
+        <linearGradient
+          id={skyId}
+          x1="0"
+          y1="0"
+          x2="320"
+          y2="96"
+          gradientUnits="userSpaceOnUse"
+          spreadMethod="reflect"
+        >
+          <stop style={{ stopColor: "var(--stage-night-bottom)" }} />
+          <stop offset="0.6" style={{ stopColor: "var(--stage-night-mid)" }} />
+          <stop offset="1" style={{ stopColor: "var(--stage-night-top)" }} />
+        </linearGradient>
+        <radialGradient
+          id={glowId}
+          cx="0"
+          cy="0"
+          r="1"
+          gradientTransform="translate(232 40) rotate(150) scale(150 80)"
+          gradientUnits="userSpaceOnUse"
+        >
+          <stop style={{ stopColor: "var(--stage-night-glow-highlight)" }} stopOpacity="0.32" />
+          <stop
+            offset="0.55"
+            style={{ stopColor: "var(--stage-night-glow-secondary)" }}
+            stopOpacity="0.12"
+          />
+          <stop offset="1" style={{ stopColor: "var(--stage-night-bottom)" }} stopOpacity="0" />
+        </radialGradient>
+        {/* Fades the tentacles that reach under the brand text on the left. */}
+        <linearGradient id={inkId} x1="0" y1="0" x2="240" y2="0" gradientUnits="userSpaceOnUse">
+          <stop style={{ stopColor: "var(--stage-night-line)" }} stopOpacity="0.22" />
+          <stop offset="1" style={{ stopColor: "var(--stage-night-line)" }} stopOpacity="0.78" />
+        </linearGradient>
+        <mask id={maskId} maskUnits="userSpaceOnUse" x={x} y={y} width={size} height={size}>
+          <image href={customStageMaskUrl} x={x} y={y} width={size} height={size} />
+        </mask>
+      </defs>
+
+      <rect width="100%" height="96" fill={`url(#${skyId})`} />
+      <rect width="100%" height="96" fill={`url(#${glowId})`} />
+      <rect
+        x={x}
+        y={y}
+        width={size}
+        height={size}
+        fill={`url(#${inkId})`}
+        mask={`url(#${maskId})`}
+      />
     </svg>
   );
 }
