@@ -195,7 +195,6 @@ import { readEnvironmentScope, useEnvironmentScope } from "../state/session";
 import { buildThreadRouteParams, resolveActiveThreadRouteRef } from "../threadRoutes";
 import { formatRelativeTimeLabel, parseTimestampDate } from "../timestampFormat";
 import type { SidebarThreadSummary } from "../types";
-import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { cn } from "~/lib/utils";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
@@ -230,6 +229,7 @@ import {
   resolveSidebarRowAccessibility,
   type SidebarDropVerb,
   resolveSidebarThreadStatus,
+  resolveSidebarCheckoutLabel,
   resolveThreadLastVisitedAt,
   searchSidebarThreads,
   shouldCreateNewThreadInCurrentProject,
@@ -1584,7 +1584,6 @@ type SidebarThreadRowProps = {
   currentEnvironmentId: string | null;
   environmentLabel: string | null;
   environmentMachine: EnvironmentMachineKind;
-  scratchMachineLabel: string | null;
   project: EnvironmentProject | null;
   projectDisplayName: string | null;
   providerEntryByInstanceId: ReadonlyMap<string, SidebarProviderEntry>;
@@ -1775,7 +1774,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     : thread.modelSelection.model;
 
   const isRemote = thread.environmentId !== props.currentEnvironmentId;
-  const showsScratchMachine = !thread.branch && props.scratchMachineLabel !== null;
+  const checkoutLabel = resolveSidebarCheckoutLabel(thread);
 
   const detailsTooltip = (
     <SidebarThreadTooltip
@@ -2056,7 +2055,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       >
         {props.workspaceTree && variant === "slim" ? (
           <span className="block truncate text-2xs text-secondary-label">
-            {props.environmentLabel ?? thread.environmentId} · {thread.branch ?? "No branch"}
+            {checkoutLabel ?? "No branch"}
           </span>
         ) : null}
         {thread.title}
@@ -2307,9 +2306,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   }
 
   const diff = latestRunDiff(thread);
-  const cardProjectLabel = props.workspaceTree
-    ? (props.environmentLabel ?? thread.environmentId)
-    : props.projectDisplayName;
+  // The leading environment icon already names the node, and a workspace
+  // tree's group header names the project.
+  const cardProjectLabel = props.workspaceTree ? null : props.projectDisplayName;
 
   return (
     <li
@@ -2496,24 +2495,15 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                 {cardProjectLabel ? (
                   <span className="min-w-0 truncate">{cardProjectLabel}</span>
                 ) : null}
-                {cardProjectLabel && (thread.branch || showsScratchMachine) ? (
+                {cardProjectLabel && checkoutLabel ? (
                   <span aria-hidden className="shrink-0">
                     ·
                   </span>
                 ) : null}
-                {thread.branch ? (
+                {checkoutLabel ? (
                   <>
                     <ThreadWorktreeIndicator thread={thread} />
-                    <MiddleTruncate value={thread.branch} showTitle={false} />
-                  </>
-                ) : showsScratchMachine ? (
-                  <>
-                    <EnvironmentMachineIcon
-                      aria-hidden
-                      kind={props.environmentMachine}
-                      className="size-3 shrink-0"
-                    />
-                    <span className="min-w-0 truncate">{props.scratchMachineLabel}</span>
+                    <MiddleTruncate value={checkoutLabel} showTitle={false} />
                   </>
                 ) : null}
               </span>
@@ -2533,7 +2523,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                 aria-hidden
                 className="pointer-events-none ml-auto inline-flex shrink-0 items-center gap-1"
               >
-                {isRemote && !showsScratchMachine ? (
+                {isRemote ? (
                   <span className="inline-flex shrink-0 items-center text-sidebar-muted-foreground/70">
                     <EnvironmentMachineIcon
                       aria-hidden
@@ -3054,19 +3044,6 @@ export default function Sidebar() {
     settings: projectGroupingSettings,
   });
   const showProjectEnvironments = projectGroupsSpanEnvironments(projectGroups);
-  const scratchMachineLabelFor = (
-    thread: Pick<SidebarThreadSummary, "environmentId" | "projectId">,
-  ) => {
-    if (!showProjectEnvironments) return null;
-    const project = projectByKey.get(`${thread.environmentId}:${thread.projectId}`);
-    if (
-      !project ||
-      !isScratchProject(project, serverConfigs.get(thread.environmentId)?.scratchWorkspaceRoot)
-    ) {
-      return null;
-    }
-    return environmentLabelById.get(thread.environmentId) ?? null;
-  };
   const selectedProjectScopeItem =
     projectScopeItems.find((item) => item.value === (projectScopeKey ?? "all")) ??
     projectScopeItems[0]!;
@@ -5149,7 +5126,6 @@ export default function Sidebar() {
                             environmentMachine={
                               environmentMachineById.get(thread.environmentId) ?? "server"
                             }
-                            scratchMachineLabel={scratchMachineLabelFor(thread)}
                             project={
                               projectByKey.get(`${thread.environmentId}:${thread.projectId}`) ??
                               null

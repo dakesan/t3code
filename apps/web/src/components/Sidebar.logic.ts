@@ -732,6 +732,15 @@ export function resolveThreadLastVisitedAt(
   return serverLastVisitedAt ?? undefined;
 }
 
+export function resolveSidebarCheckoutLabel(
+  thread: Pick<SidebarThreadSummary, "branch" | "worktreePath">,
+): string | null {
+  if (thread.branch) return thread.branch;
+  // Worktree directory names are generated, so they only stand in for a
+  // detached worktree that has no branch to show.
+  return thread.worktreePath?.trim().split(/[\\/]/).findLast(Boolean) ?? null;
+}
+
 export function hasUnseenCompletion(thread: ThreadStatusInput): boolean {
   if (!thread.latestRun?.completedAt) return false;
   const completedAt = Date.parse(thread.latestRun.completedAt);

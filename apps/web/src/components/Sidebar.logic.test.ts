@@ -59,6 +59,7 @@ import {
   type SidebarListMarker,
   type SidebarSection,
   resolveSidebarDropVerb,
+  resolveSidebarCheckoutLabel,
 } from "./Sidebar.logic";
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
 import { EnvironmentId, ProjectId, ProviderInstanceId, RunId, ThreadId } from "@t3tools/contracts";
@@ -539,6 +540,30 @@ function makeLatestRun(overrides?: {
       overrides?.completedAt !== undefined ? overrides.completedAt : "2026-03-09T10:05:00.000Z",
   };
 }
+
+describe("resolveSidebarCheckoutLabel", () => {
+  it("prefers the branch over the worktree directory", () => {
+    expect(
+      resolveSidebarCheckoutLabel({
+        branch: "feat/sidebar",
+        worktreePath: "/Users/me/.t3/worktrees/t3code/t3-1234abcd",
+      }),
+    ).toBe("feat/sidebar");
+  });
+
+  it("falls back to the worktree directory for a detached worktree", () => {
+    expect(
+      resolveSidebarCheckoutLabel({
+        branch: null,
+        worktreePath: "/Users/me/.t3/worktrees/t3code/t3-1234abcd/",
+      }),
+    ).toBe("t3-1234abcd");
+  });
+
+  it("has no label without a branch or worktree", () => {
+    expect(resolveSidebarCheckoutLabel({ branch: null, worktreePath: null })).toBeNull();
+  });
+});
 
 describe("hasUnseenCompletion", () => {
   it("returns true when a thread completed after its last visit", () => {
