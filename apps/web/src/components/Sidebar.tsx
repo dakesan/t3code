@@ -90,8 +90,6 @@ import {
   CheckIcon,
   CircleAlertIcon,
   CircleCheckIcon,
-  CircleDashedIcon,
-  CircleDotDashedIcon,
   ClockIcon,
   FolderIcon,
   GitBranchIcon,
@@ -1709,7 +1707,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       ? {
           label: thread.goal?.status === "active" ? "Goal" : "Working",
           icon: "working" as const,
-          className: "text-info",
+          className: "text-muted-foreground",
         }
       : status === "waiting"
         ? {
@@ -1751,7 +1749,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                     ? {
                         label: "Done",
                         icon: "done" as const,
-                        className: "text-success",
+                        className: "text-muted-foreground",
                       }
                     : null;
   const isWokeStatus = topStatus?.icon === "woke";
@@ -2309,6 +2307,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   }
 
   const diff = latestRunDiff(thread);
+  const cardProjectLabel = props.workspaceTree
+    ? (props.environmentLabel ?? thread.environmentId)
+    : props.projectDisplayName;
 
   return (
     <li
@@ -2316,7 +2317,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       {...sortableRootProps}
       {...(fileDropHandlers ?? {})}
       className={cn(
-        "list-none py-0.5 [content-visibility:auto] [contain-intrinsic-size:auto_78px]",
+        "list-none py-0.5 [content-visibility:auto] [contain-intrinsic-size:auto_50px]",
         sortable?.isDragging && "relative z-20",
         workspaceTreeClassName,
       )}
@@ -2341,35 +2342,27 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           }
         >
           {accessibleTitle}
-          <div className="relative z-10 h-[4.875rem] px-(--sidebar-row-content-inset) py-(--sidebar-content-inset)">
-            <div className="flex h-5 min-w-0 items-center gap-1.5">
-              {draftIndicator}
+          <div className="relative z-10 grid h-[3.125rem] grid-cols-[auto_minmax(0,1fr)] content-center gap-x-1.5 gap-y-0.5 px-(--sidebar-row-content-inset) py-1">
+            <div className="flex h-5 items-center gap-1.5">
               {props.project ? (
                 <ProjectFavicon project={props.project} className="size-4 shrink-0" />
               ) : null}
-              {/* Left of the status slot, the pin would slide when hover swaps the
-                label for the wider row controls. */}
+              {draftIndicator}
               {pinIndicator}
-              {props.projectDisplayName || props.workspaceTree ? (
-                <span
-                  className={cn(
-                    "min-w-0 flex-1 truncate text-secondary-label text-xs",
-                    shouldRecede ? "font-normal" : "font-medium",
-                  )}
-                >
-                  {props.workspaceTree
-                    ? (props.environmentLabel ?? thread.environmentId)
-                    : props.projectDisplayName}
+            </div>
+            <div className="flex h-5 min-w-0 items-center gap-1.5">
+              {title}
+              {isRegeneratingTitle ? (
+                <span role="status" className="sr-only">
+                  Regenerating title
                 </span>
-              ) : (
-                <span className="flex-1" />
-              )}
+              ) : null}
               {sortable?.isDragging ? (
                 dragDestination
               ) : (
                 <span
                   className={cn(
-                    "group/sidebar-status-slot relative ml-auto flex h-5 min-w-8 shrink-0 items-stretch justify-end text-xs",
+                    "group/sidebar-status-slot relative ml-auto flex h-5 min-w-8 shrink-0 items-stretch justify-end text-xs whitespace-nowrap",
                     props.sweepAction !== null && "hidden",
                   )}
                 >
@@ -2410,18 +2403,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                             topStatus.className,
                           )}
                         >
-                          {topStatus.icon === "working" ? (
-                            <CircleDashedIcon aria-hidden className="size-4 shrink-0" />
-                          ) : topStatus.icon === "waiting" ? (
-                            <CircleDotDashedIcon aria-hidden className="size-4 shrink-0" />
-                          ) : topStatus.icon === "input" ? (
+                          {topStatus.icon === "input" ? (
                             <MessageCircleQuestionIcon aria-hidden className="size-4 shrink-0" />
                           ) : topStatus.icon === "approval" ? (
                             <ShieldQuestionIcon aria-hidden className="size-4 shrink-0" />
                           ) : topStatus.icon === "failed" ? (
                             <CircleAlertIcon aria-hidden className="size-4 shrink-0" />
-                          ) : topStatus.icon === "done" ? (
-                            <CircleCheckIcon aria-hidden className="size-4 shrink-0" />
                           ) : null}
                           {/* The label alone is the live region: a role="status"
                             wrapper around the ticking duration would make
@@ -2504,41 +2491,32 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               )}
               {props.sweepAction !== null ? dragDestination : null}
             </div>
-            <div className="mt-1 flex min-w-0">
-              {title}
-              {isRegeneratingTitle ? (
-                <span role="status" className="sr-only">
-                  Regenerating title
-                </span>
-              ) : null}
-            </div>
-            <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-secondary-label text-xs">
-              {thread.branch || props.workspaceTree ? (
-                <>
-                  <ThreadWorktreeIndicator thread={thread} />
-                  <span
-                    className={cn(
-                      "flex min-w-0 flex-1",
-                      props.workspaceTree ? "text-secondary-label" : "text-muted-foreground/40",
-                    )}
-                  >
-                    <MiddleTruncate value={thread.branch ?? "No branch"} showTitle={false} />
+            <div className="col-start-2 flex min-w-0 items-center gap-1.5 text-secondary-label text-xs">
+              <span className="flex min-w-0 flex-1 items-center gap-1">
+                {cardProjectLabel ? (
+                  <span className="min-w-0 truncate">{cardProjectLabel}</span>
+                ) : null}
+                {cardProjectLabel && (thread.branch || showsScratchMachine) ? (
+                  <span aria-hidden className="shrink-0">
+                    ·
                   </span>
-                </>
-              ) : showsScratchMachine ? (
-                <>
-                  <EnvironmentMachineIcon
-                    aria-hidden
-                    kind={props.environmentMachine}
-                    className="size-3 shrink-0 text-muted-foreground/40"
-                  />
-                  <span className="min-w-0 flex-1 truncate text-muted-foreground/40">
-                    {props.scratchMachineLabel}
-                  </span>
-                </>
-              ) : (
-                <span className="flex-1" />
-              )}
+                ) : null}
+                {thread.branch ? (
+                  <>
+                    <ThreadWorktreeIndicator thread={thread} />
+                    <MiddleTruncate value={thread.branch} showTitle={false} />
+                  </>
+                ) : showsScratchMachine ? (
+                  <>
+                    <EnvironmentMachineIcon
+                      aria-hidden
+                      kind={props.environmentMachine}
+                      className="size-3 shrink-0"
+                    />
+                    <span className="min-w-0 truncate">{props.scratchMachineLabel}</span>
+                  </>
+                ) : null}
+              </span>
               {terminalStatusIcon}
               {prBadge}
               {diff ? (

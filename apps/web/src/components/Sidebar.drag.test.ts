@@ -503,13 +503,14 @@ describe("sidebar drag projection", () => {
 
   it("scales the label space with the measured root scale", () => {
     const items = [pinnedHeader, thread("p", "pinned"), divider, thread("a1", "active")];
-    const result = preview(
-      { items, settledOrder: [], settledExpanded: true, boundaryLabelHeight: 16 },
-      "a1",
-      "p",
-      2,
-    );
-    expect(result.get(sidebarMarkerId("pinned-divider"))?.y).toBe(32 + 165);
+    const strategy = createSidebarSortingStrategy({
+      items,
+      settledOrder: [],
+      settledExpanded: true,
+      boundaryLabelHeight: 16,
+    });
+    const args = layout(items, "a1", "p", 2, 54);
+    expect(strategy({ ...args, index: 2 })?.y).toBe(32 + 109);
   });
 
   it("keeps the pinned header above the first arriving pin", () => {
@@ -673,7 +674,10 @@ describe("sidebar drag projection", () => {
     expect(byTime.get("w")).toEqual(stationary);
   });
 
-  it("derives missing card geometry from the measured root scale", () => {
+  it.each([
+    [1, 55],
+    [0.75, 41.5],
+  ])("derives missing compact card geometry at scale %s", (scale, expectedShift) => {
     const items = [
       pinnedHeader,
       divider,
@@ -685,11 +689,11 @@ describe("sidebar drag projection", () => {
       { items, settledOrder: [], settledExpanded: true },
       "s",
       sidebarMarkerId("pinned-header"),
-      0.75,
+      scale,
     );
     expect(result.get(sidebarMarkerId("pinned-header"))).toEqual(stationary);
-    expect(result.get(sidebarMarkerId("pinned-divider"))?.y).toBe(62.5);
-    expect(result.get(sidebarMarkerId("active-placeholder"))?.y).toBe(62.5);
+    expect(result.get(sidebarMarkerId("pinned-divider"))?.y).toBe(expectedShift);
+    expect(result.get(sidebarMarkerId("active-placeholder"))?.y).toBe(expectedShift);
   });
 
   it("updates the projection when the target or measured geometry changes", () => {
@@ -730,7 +734,10 @@ describe("sidebar drag projection", () => {
     },
   );
 
-  it("uses shelf height for empty target sizing when card height differs from its default", () => {
+  it.each([
+    [54, -18],
+    [78, -42],
+  ])("uses shelf height for empty target sizing with %ipx cards", (cardHeight, expectedShift) => {
     const items = [
       pinnedHeader,
       thread("p", "pinned"),
@@ -744,8 +751,8 @@ describe("sidebar drag projection", () => {
       settledOrder: [],
       settledExpanded: false,
     });
-    const args = layout(items, "a", sidebarMarkerId("settled-placeholder"), 1, 78);
-    expect(strategy({ ...args, index: 4 })?.y).toBe(-42);
+    const args = layout(items, "a", sidebarMarkerId("settled-placeholder"), 1, cardHeight);
+    expect(strategy({ ...args, index: 4 })?.y).toBe(expectedShift);
   });
 
   it("keeps the route row visible after a settled drop pushes it beyond the page", () => {

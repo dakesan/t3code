@@ -1257,17 +1257,26 @@ describe("resolveWorkingStartedAt", () => {
 });
 
 describe("formatWorkingDurationLabel", () => {
-  it("formats seconds, minutes, and hours", () => {
-    expect(formatWorkingDurationLabel(0)).toBe("0s");
-    expect(formatWorkingDurationLabel(42_000)).toBe("42s");
-    expect(formatWorkingDurationLabel(5 * 60_000)).toBe("5m");
-    expect(formatWorkingDurationLabel(90 * 60_000)).toBe("1h 30m");
+  it.each([
+    [0, "0:00"],
+    [999, "0:00"],
+    [41_000, "0:41"],
+    [59_999, "0:59"],
+    [60_000, "1:00"],
+    [133_000, "2:13"],
+    [3_599_999, "59:59"],
+    [3_600_000, "1:00:00"],
+    [90 * 60_000 + 41_000, "1:30:41"],
+  ])("formats %i ms as %s", (elapsedMs, expected) => {
+    expect(formatWorkingDurationLabel(elapsedMs)).toBe(expected);
   });
 
-  it("clamps negative and non-finite elapsed values to zero", () => {
-    expect(formatWorkingDurationLabel(-5_000)).toBe("0s");
-    expect(formatWorkingDurationLabel(Number.NaN)).toBe("0s");
-  });
+  it.each([-5_000, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+    "clamps invalid elapsed values to zero: %s",
+    (elapsedMs) => {
+      expect(formatWorkingDurationLabel(elapsedMs)).toBe("0:00");
+    },
+  );
 });
 
 describe("resolveThreadStatusPill", () => {
