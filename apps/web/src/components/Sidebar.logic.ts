@@ -1092,10 +1092,10 @@ export function resolveWorkingStartedAt(
 
 export function formatWorkingDurationLabel(elapsedMs: number): string {
   const seconds = Number.isFinite(elapsedMs) ? Math.max(0, Math.floor(elapsedMs / 1000)) : 0;
+  if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
-  const secondsLabel = String(seconds % 60).padStart(2, "0");
-  if (minutes < 60) return `${minutes}:${secondsLabel}`;
-  return `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, "0")}:${secondsLabel}`;
+  if (minutes < 60) return `${minutes}m`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
 export function resolveThreadStatusPill(input: {
